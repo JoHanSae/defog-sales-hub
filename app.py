@@ -20,15 +20,10 @@ st.markdown("""
         border-top: 5px solid #2563eb; transition: transform 0.2s;
     }
     .metric-card:hover { transform: translateY(-2px); }
-    
-    .meeting-card {
-        background: #ffffff; padding: 15px; border-radius: 8px;
-        border-left: 5px solid #f59e0b; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
     </style>
     """, unsafe_allow_html=True)
 
-# ─── 2. 팀원 계정 설정 (매니저님 요청사항 완벽 반영) ──────────────────────────────
+# ─── 2. 팀원 계정 설정 ─────────────────────────────────────────────────────────
 USERS = {
     "ceo":     ("대표님", "defog!ceo"),
     "leader1": ("김원중 팀장님", "defog!leader1"),
@@ -40,7 +35,7 @@ if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
 def show_login():
-    st.markdown("<div style='text-align: center; padding: 100px 0;'><h1 style='color:#1e3a8a;'>🚀 DEFOG Hub</h1><p style='color:#64748b;'>사내 통합 파이프라인 관리 시스템 (Master)</p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; padding: 100px 0;'><h1 style='color:#1e3a8a;'>🚀 DEFOG Hub</h1><p style='color:#64748b;'>사내 통합 파이프라인 관리 시스템</p></div>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 1, 1])
     with c2:
         with st.form("login"):
@@ -106,9 +101,8 @@ tabs = st.tabs(["📝 통합 데이터 편집기", "🗣️ 주간 영업 미팅
 # [Tab 1] 통합 데이터 편집기
 # ═════════════════════════════════════════════════════════════════════════════
 with tabs[0]:
-    with st.expander("🚀 [클릭] 스마트 신규 프로젝트 등록 (담당자 자동선택 지원)", expanded=False):
+    with st.expander("🚀 [클릭] 스마트 신규 프로젝트 등록", expanded=False):
         with st.form("quick_add_form"):
-            st.markdown("💡 엑셀 표 맨 아래에 빈칸을 더블클릭해서 넣을 수도 있지만, 이 폼을 쓰면 훨씬 빠르고 정확합니다.")
             f1, f2, f3, f4 = st.columns(4)
             with f1: f_no = st.text_input("PJT No (예: PJT-26-001)")
             with f2: f_comp = st.text_input("수주업체 *")
@@ -118,10 +112,8 @@ with tabs[0]:
             f5, f6, f7, f8 = st.columns(4)
             with f5: f_cat = st.selectbox("구분", ["PRODUCT", "SOLUTION", "기타"])
             with f6: f_stat = st.selectbox("상태", STATUS_LIST)
-            with f7: 
-                f_mgr_sel = st.selectbox("담당자 선택", DEFAULT_MANAGERS + ["== 직접 입력 =="])
-            with f8:
-                f_mgr_cust = st.text_input("담당자 직접 입력 (위에서 선택 시)")
+            with f7: f_mgr_sel = st.selectbox("담당자 선택", DEFAULT_MANAGERS + ["== 직접 입력 =="])
+            with f8: f_mgr_cust = st.text_input("담당자 직접 입력 (위에서 선택 시)")
                 
             f_prod = st.text_input("제안제품 (예: INROW / RDC)")
             
@@ -190,7 +182,6 @@ with tabs[0]:
 # ═════════════════════════════════════════════════════════════════════════════
 with tabs[1]:
     st.markdown("### 🗣️ 주간 영업 회의용 뷰어")
-    st.markdown("<p style='color:gray;'>실수 데이터를 지울 걱정 없는 <b>읽기 전용 모드</b>입니다. 미팅 시 화면에 띄워놓고 보고하세요.</p>", unsafe_allow_html=True)
     
     df_meet = get_db_data()
     if not df_meet.empty:
@@ -252,7 +243,7 @@ with tabs[2]:
             st.plotly_chart(fig_bar, use_container_width=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Tab 4] ⚙️ 시스템 설정 및 동기화
+# [Tab 4] ⚙️ 시스템 설정 (⭐ 엑셀 포맷팅 완벽 적용)
 # ═════════════════════════════════════════════════════════════════════════════
 with tabs[3]:
     c_up, c_down = st.columns(2)
@@ -288,6 +279,16 @@ with tabs[3]:
         if st.button("🔄 최신 엑셀 백업본 생성", use_container_width=True):
             df_export = get_db_data()
             output = io.BytesIO()
+            
+            # openpyxl을 통해 엑셀 셀 자체에 회계 서식을 직접 구워 넣습니다.
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_export.to_excel(writer, index=False, sheet_name="파이프라인")
+                worksheet = writer.sheets['파이프라인']
+                
+                # 'amount' 열(보통 8번째 H열)을 찾아 숫자(₩ 1,234) 서식을 강제로 적용합니다. 소수점도 없앱니다.
+                amount_col_idx = df_export.columns.get_loc('amount') + 1 
+                for row in range(2, len(df_export) + 2):
+                    cell = worksheet.cell(row=row, column=amount_col_idx)
+                    cell.number_format = '"₩" #,##0'
+                    
             st.download_button("📥 백업 다운로드", output.getvalue(), f"DEFOG_Master_DB_{datetime.now().strftime('%m%d')}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
