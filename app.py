@@ -136,8 +136,8 @@ with st.sidebar:
     
     MENU_1 = "📝 프로젝트 파이프라인 관리"
     MENU_2 = "🤝 주간 영업 회의 보드"
-    MENU_3 = "📊 경영진 성과 대시보드"
-    MENU_4 = "⚙️ 시스템 및 데이터 관리"
+    MENU_3 = "📊 성과 대시보드"
+    MENU_4 = "⚙️ DB 불러오기 / 내보내기"
     
     menu = st.radio("메뉴 이동", [MENU_1, MENU_2, MENU_3, MENU_4], label_visibility="collapsed")
     
