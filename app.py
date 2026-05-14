@@ -21,6 +21,21 @@ st.markdown("""
     .metric-card:hover { transform: translateY(-2px); }
     [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e2e8f0; }
     .stProgress > div > div > div > div { background-color: #10b981; }
+    
+    /* 프리미엄 배너 스타일 */
+    .summary-banner {
+        background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%);
+        padding: 15px 25px;
+        border-radius: 8px;
+        color: white;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 10px;
+        margin-bottom: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .summary-banner h4, .summary-banner h3 { margin: 0; color: white !important; font-weight: 700; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -69,7 +84,7 @@ def show_login():
 if not st.session_state['logged_in']: show_login()
 
 # ─── 4. 데이터베이스 및 전역 변수 설정 ──────────────────────────────────────────
-DB_PATH = "defog_v16_master.db" 
+DB_PATH = "defog_v17_master.db" 
 DEFAULT_MANAGERS = ["김형권", "김원중", "김용신", "이승호", "김민태", "한민혁", "조한새", "김혜지", "홍정희", "이수빈"]
 STATUS_LIST = ["🔵 견적", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
@@ -100,7 +115,6 @@ def clean_status(text):
     elif "Drop" in text or "취소" in text: return "🔴 Drop"
     else: return "🔵 견적"
 
-# 빈틈없는 AI 퍼지 매칭 함수
 def safe_get(df, possible_keywords, default_val):
     for col in df.columns:
         norm_col = str(col).lower().replace(' ', '').replace('_', '').replace('(', '').replace(')', '').replace('원', '').strip()
@@ -122,8 +136,8 @@ with st.sidebar:
     
     MENU_1 = "📝 프로젝트 파이프라인 관리"
     MENU_2 = "🤝 주간 영업 회의 보드"
-    MENU_3 = "📊 성과 대시보드"
-    MENU_4 = "⚙️ DB 불러오기 / 내보내기"
+    MENU_3 = "📊 경영진 성과 대시보드"
+    MENU_4 = "⚙️ 시스템 및 데이터 관리"
     
     menu = st.radio("메뉴 이동", [MENU_1, MENU_2, MENU_3, MENU_4], label_visibility="collapsed")
     
@@ -134,7 +148,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
-    st.info("🔗 **팀원 초대용 안전 링크**\n\n아래 주소를 복사해서 공유하세요. (주소창 복사 금지)")
+    st.info("🔗 **팀원 초대용 안전 링크**\n\n아래 주소를 복사해서 공유하세요.")
     st.code("https://defog-sales-app.streamlit.app/", language="text")
 
 st.markdown(f"<h2 style='color:#1e3a8a; font-weight:800; margin-bottom: 30px;'>{menu}</h2>", unsafe_allow_html=True)
@@ -182,14 +196,13 @@ if menu == MENU_1:
     df_current = get_db_data()
     df_current['display_amount'] = df_current['amount'].apply(lambda x: f"{int(x):,}" if pd.notnull(x) and str(x).strip() != '' else "0")
     
-    # 시선 흐름에 맞춘 완벽한 컬럼 순서
     ORDERED_COLS = ["pjt_no", "company", "pjt_name", "category", "status", "manager", "proposed_product", "display_amount", "remarks", "updated_at"]
     
     edited_df = st.data_editor(
         df_current,
         num_rows="dynamic",
         use_container_width=True,
-        height=600,
+        height=550,
         column_order=ORDERED_COLS,
         column_config={
             "amount": None, 
@@ -199,13 +212,29 @@ if menu == MENU_1:
             "pjt_name": st.column_config.TextColumn("프로젝트명", width="large"),
             "category": st.column_config.SelectboxColumn("구분", options=["PRODUCT", "SOLUTION", "기타"], width="small"),
             "status": st.column_config.SelectboxColumn("상태", options=STATUS_LIST, width="small"),
-            "manager": st.column_config.TextColumn("담당자 (자유입력)", width="small"),
+            "manager": st.column_config.TextColumn("담당자", width="small"),
             "proposed_product": st.column_config.TextColumn("제안제품", width="medium"),
             "remarks": st.column_config.TextColumn("비고", width="large"),
-            "updated_at": st.column_config.TextColumn("최종 업데이트(날짜)", disabled=True, width="small")
+            "updated_at": st.column_config.TextColumn("최종 업데이트", disabled=True, width="small")
         },
         key="main_editor"
     )
+
+    # ⭐ 핵심 디테일: 고급스러운 종합 요약 배너 추가
+    total_pipeline_amt = df_current['amount'].sum()
+    total_project_cnt = len(df_current)
+    
+    st.markdown(f"""
+        <div class="summary-banner">
+            <div>
+                <h4 style="opacity: 0.9; margin-bottom: 5px;">📊 현재 파이프라인 종합 요약</h4>
+                <span style="font-size: 14px;">저장된 전체 프로젝트 기준</span>
+            </div>
+            <div style="text-align: right;">
+                <h3 style="font-size: 28px; letter-spacing: 1px;">₩ {total_pipeline_amt:,} <span style="font-size: 18px; font-weight: 400; opacity: 0.9;">({total_project_cnt}건)</span></h3>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
     if st.button("💾 데이터베이스 저장 (변경사항 확정)", type="primary", use_container_width=True):
         try:
@@ -213,7 +242,7 @@ if menu == MENU_1:
             edited_df['amount'] = pd.to_numeric(edited_df['amount'], errors='coerce').fillna(0).astype(int)
             edited_df = edited_df.drop(columns=['display_amount'])
             edited_df.fillna("-", inplace=True)
-            edited_df['updated_at'] = get_kst_date() # 날짜만 저장
+            edited_df['updated_at'] = get_kst_date()
             
             conn = sqlite3.connect(DB_PATH)
             conn.execute("DELETE FROM projects")
@@ -250,7 +279,6 @@ elif menu == MENU_2:
         meet_filtered['중요도'] = meet_filtered['amount'].apply(get_badge)
         meet_filtered['수주금액'] = meet_filtered['amount'].apply(lambda x: f"₩ {int(x):,}")
         
-        # ⭐ 핵심 버그 해결: 영어 DB 컬럼 이름으로 먼저 불러온 뒤, 한글로 이름표를 바꿔줍니다!
         meet_show = meet_filtered[['updated_at', 'status', '중요도', 'company', 'pjt_name', 'manager', 'proposed_product', '수주금액', 'remarks']]
         meet_show.columns = ['최종업데이트', '상태', '중요도', '수주업체', '프로젝트명', '담당자', '제안제품', '수주금액', '비고']
         
@@ -333,11 +361,15 @@ elif menu == MENU_4:
                 mapped["remarks"] = safe_get(raw, ['remarks', '비고', '특이', '이슈', '메모'], '-')
                 mapped["updated_at"] = get_kst_date() 
                 
+                # ⭐ 핵심 패치: 엑셀 파일 맨 밑에 있던 '합계' 줄이 데이터로 들어가지 않게 완벽 차단!
+                mapped = mapped[~mapped['company'].astype(str).str.contains('합계|총계|총액', na=False)]
+                mapped = mapped[~mapped['pjt_name'].astype(str).str.contains('합계|총계|총액', na=False)]
+                
                 conn = sqlite3.connect(DB_PATH)
                 mapped.to_sql('projects', conn, if_exists='append', index=False)
                 conn.commit()
                 conn.close()
-                st.success("🎉 빈칸 없이 완벽하게 데이터가 통합되었습니다!"); st.rerun()
+                st.success("🎉 합계 데이터 등 찌꺼기 없이 완벽하게 데이터가 통합되었습니다!"); st.rerun()
             except Exception as e:
                 st.error(f"업로드 중 에러가 발생했습니다: {e}")
                 
