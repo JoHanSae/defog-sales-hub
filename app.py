@@ -34,12 +34,11 @@ USERS = {
     "manager": ("팀원", "defog!manager")
 }
 
-# ⭐ 핵심 디버깅: F5 새로고침 방어 로직 (통행증 검사)
+# F5 새로고침 방어 로직 (통행증 검사)
 if 'logged_in' not in st.session_state:
     ticket = st.query_params.get("ticket", "")
     is_valid_ticket = False
     
-    # URL에 유효한 통행증이 있으면 로그인 상태 복구
     for uid in USERS:
         if ticket == f"defog_auth_{uid}_valid":
             st.session_state['logged_in'] = True
@@ -67,7 +66,6 @@ def show_login():
                 if u_id in USERS and USERS[u_id][1] == u_pw:
                     st.session_state['logged_in'] = True
                     st.session_state['user_name'] = USERS[u_id][0]
-                    # ⭐ 로그인 성공 시 F5 방어용 통행증 발급
                     st.query_params["ticket"] = f"defog_auth_{u_id}_valid"
                     st.rerun()
                 else: st.error("정보가 일치하지 않습니다.")
@@ -122,16 +120,21 @@ with st.sidebar:
     st.markdown(f"👤 **{st.session_state['user_name']}** 접속중")
     st.markdown("---")
     
+    # ⭐ 비즈니스 워딩으로 전면 교체
+    MENU_1 = "📝 프로젝트 파이프라인 관리"
+    MENU_2 = "🤝 주간 영업 회의 보드"
+    MENU_3 = "📊 경영진 성과 대시보드"
+    MENU_4 = "⚙️ 시스템 및 데이터 관리"
+    
     menu = st.radio(
         "메뉴 이동",
-        ["📝 통합 데이터 편집기", "🗣️ 주간 영업 미팅 보드", "📊 경영진 대시보드", "⚙️ 시스템 설정"],
+        [MENU_1, MENU_2, MENU_3, MENU_4],
         label_visibility="collapsed"
     )
     
     st.markdown("---")
     if st.button("로그아웃", use_container_width=True):
         st.session_state['logged_in'] = False
-        # ⭐ 로그아웃 시 통행증 완벽 폐기
         st.query_params.clear() 
         st.rerun()
 
@@ -139,9 +142,9 @@ with st.sidebar:
 st.markdown(f"<h2 style='color:#1e3a8a; font-weight:800; margin-bottom: 30px;'>{menu}</h2>", unsafe_allow_html=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 1] 통합 데이터 편집기
+# [Menu 1] 프로젝트 파이프라인 관리
 # ═════════════════════════════════════════════════════════════════════════════
-if menu == "📝 통합 데이터 편집기":
+if menu == MENU_1:
     with st.expander("🚀 [클릭] 스마트 신규 프로젝트 등록", expanded=False):
         with st.form("quick_add_form"):
             f1, f2, f3, f4 = st.columns(4)
@@ -217,9 +220,9 @@ if menu == "📝 통합 데이터 편집기":
         except Exception as e: st.error(f"저장 중 오류: {e}")
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 2] 🗣️ 주간 영업 미팅 보드 
+# [Menu 2] 주간 영업 회의 보드 
 # ═════════════════════════════════════════════════════════════════════════════
-elif menu == "🗣️ 주간 영업 미팅 보드":
+elif menu == MENU_2:
     st.markdown("<p style='color:gray;'>💡 데이터 손상 걱정 없는 <b>읽기 전용 모드</b>입니다. 미팅 시 즉시 검색하여 보고하세요.</p>", unsafe_allow_html=True)
     
     df_meet = get_db_data()
@@ -249,9 +252,9 @@ elif menu == "🗣️ 주간 영업 미팅 보드":
         st.info("데이터가 없습니다.")
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 3] 📊 경영진 대시보드
+# [Menu 3] 경영진 성과 대시보드
 # ═════════════════════════════════════════════════════════════════════════════
-elif menu == "📊 경영진 대시보드":
+elif menu == MENU_3:
     df_dash = get_db_data()
     if df_dash.empty:
         st.info("현재 등록된 데이터가 없습니다.")
@@ -287,9 +290,9 @@ elif menu == "📊 경영진 대시보드":
             st.plotly_chart(fig_bar, use_container_width=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 4] ⚙️ 시스템 설정
+# [Menu 4] 시스템 및 데이터 관리
 # ═════════════════════════════════════════════════════════════════════════════
-elif menu == "⚙️ 시스템 설정":
+elif menu == MENU_4:
     st.info("🚨 클라우드 서버 특성상 장기간 미접속 시 데이터가 초기화될 수 있습니다. **매주 금요일 엑셀 백업을 생활화** 해주세요!")
     c_up, c_down = st.columns(2)
     with c_up:
