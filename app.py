@@ -6,9 +6,9 @@ import os
 from datetime import datetime, timedelta
 import io
 
-# ─── KST 절대 시간 함수 (서버 위치 무관 100% 한국시간) ───────────────────
-def get_kst_now():
-    return datetime.utcnow() + timedelta(hours=9)
+# ─── KST 절대 시간 함수 (시간 빼고 날짜만!) ───────────────────────────────
+def get_kst_date():
+    return (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
 
 # ─── 1. 페이지 설정 및 시각적 테마 ──────────────────────────────────────────
 st.set_page_config(page_title="DEFOG 영업 허브", page_icon="🚀", layout="wide")
@@ -69,7 +69,7 @@ def show_login():
 if not st.session_state['logged_in']: show_login()
 
 # ─── 4. 데이터베이스 및 전역 변수 설정 ──────────────────────────────────────────
-DB_PATH = "defog_v14_master.db" 
+DB_PATH = "defog_v15_master.db" 
 DEFAULT_MANAGERS = ["김형권", "김원중", "김용신", "이승호", "김민태", "한민혁", "조한새", "김혜지", "홍정희", "이수빈"]
 STATUS_LIST = ["🔵 견적", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
@@ -100,7 +100,7 @@ def clean_status(text):
     elif "Drop" in text or "취소" in text: return "🔴 Drop"
     else: return "🔵 견적"
 
-# ⭐ 빈틈없는 AI 퍼지 매칭 함수 (어떤 엑셀 이름이든 잡아냅니다)
+# 빈틈없는 AI 퍼지 매칭 함수
 def safe_get(df, possible_keywords, default_val):
     for col in df.columns:
         norm_col = str(col).lower().replace(' ', '').replace('_', '').replace('(', '').replace(')', '').replace('원', '').strip()
@@ -170,17 +170,19 @@ if menu == MENU_1:
                     conn.execute("""
                         INSERT INTO projects (pjt_no, company, pjt_name, category, status, manager, proposed_product, amount, remarks, updated_at) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (f_no, f_comp, f_name, f_cat, f_stat, final_mgr, f_prod, int(f_amt), f_rem, get_kst_now().strftime("%Y-%m-%d %H:%M")))
+                    """, (f_no, f_comp, f_name, f_cat, f_stat, final_mgr, f_prod, int(f_amt), f_rem, get_kst_date()))
                     conn.commit()
                     conn.close()
                     st.success("✅ 프로젝트가 등록되었습니다!")
                     st.rerun()
                 else: st.error("수주업체와 프로젝트명은 필수입니다.")
 
+    st.markdown("<p style='color:#64748b;'>💡 <b>Tip:</b> 표 안을 더블클릭해 직접 수정할 수 있습니다. 금액은 숫자만 치면 알아서 콤마가 붙습니다.</p>", unsafe_allow_html=True)
+    
     df_current = get_db_data()
     df_current['display_amount'] = df_current['amount'].apply(lambda x: f"{int(x):,}" if pd.notnull(x) and str(x).strip() != '' else "0")
     
-    # ⭐ 매니저님 요청: 시선 흐름에 맞춘 완벽한 컬럼 순서 고정!
+    # 시선 흐름에 맞춘 완벽한 컬럼 순서
     ORDERED_COLS = ["pjt_no", "company", "pjt_name", "category", "status", "manager", "proposed_product", "display_amount", "remarks", "updated_at"]
     
     edited_df = st.data_editor(
@@ -200,7 +202,7 @@ if menu == MENU_1:
             "manager": st.column_config.TextColumn("담당자 (자유입력)", width="small"),
             "proposed_product": st.column_config.TextColumn("제안제품", width="medium"),
             "remarks": st.column_config.TextColumn("비고", width="large"),
-            "updated_at": st.column_config.TextColumn("최종 업데이트", disabled=True, width="small")
+            "updated_at": st.column_config.TextColumn("최종 업데이트(날짜)", disabled=True, width="small")
         },
         key="main_editor"
     )
@@ -211,7 +213,7 @@ if menu == MENU_1:
             edited_df['amount'] = pd.to_numeric(edited_df['amount'], errors='coerce').fillna(0).astype(int)
             edited_df = edited_df.drop(columns=['display_amount'])
             edited_df.fillna("-", inplace=True)
-            edited_df['updated_at'] = get_kst_now().strftime("%Y-%m-%d %H:%M") # 언제 저장해도 무조건 한국시간!
+            edited_df['updated_at'] = get_kst_date() # 날짜만 저장
             
             conn = sqlite3.connect(DB_PATH)
             conn.execute("DELETE FROM projects")
@@ -240,7 +242,6 @@ elif menu == MENU_2:
         if search_query:
             meet_filtered = meet_filtered[meet_filtered['company'].str.contains(search_query, na=False) | meet_filtered['pjt_name'].str.contains(search_query, na=False)]
             
-        # ⭐ 참신한 기능: 금액에 따른 VIP/HOT 뱃지 자동 부여
         def get_badge(amt):
             if amt >= 1000000000: return "👑 VIP"
             elif amt >= 100000000: return "🔥 HOT"
@@ -249,7 +250,6 @@ elif menu == MENU_2:
         meet_filtered['중요도'] = meet_filtered['amount'].apply(get_badge)
         meet_filtered['수주금액'] = meet_filtered['amount'].apply(lambda x: f"₩ {int(x):,}")
         
-        # 회의용 최적화 뷰 (중요도를 앞쪽에 배치)
         meet_show = meet_filtered[['최종업데이트', '상태', '중요도', '수주업체', '프로젝트명', '담당자', '제안제품', '수주금액', '비고']]
         st.dataframe(meet_show.sort_values(by='최종업데이트', ascending=False).reset_index(drop=True), use_container_width=True, height=500)
     else: st.info("데이터가 없습니다.")
@@ -295,16 +295,24 @@ elif menu == MENU_4:
     c_up, c_down = st.columns(2)
     with c_up:
         st.markdown("#### 📥 기존 엑셀 대량 등록")
+        
+        # ⭐ 핵심 패치: 엑셀에서 표 제목이 있는 진짜 행(Row) 번호를 입력받습니다.
+        header_row = st.number_input("📌 엑셀 파일에서 '수주업체', '금액' 등 제목이 있는 행(Row) 번호를 입력하세요.", min_value=1, value=1)
+        st.caption("예: 1~2행에 '파이프라인 현황' 같은 큰 제목이 있고, 3행부터 진짜 표 제목이 시작된다면 '3'을 입력하세요.")
+        
         excel_file = st.file_uploader("파일을 선택하세요", type=['csv', 'xlsx'])
         if excel_file and st.button("🚀 데이터 동기화", use_container_width=True):
             try:
-                raw = pd.read_csv(excel_file, encoding='utf-8-sig') if excel_file.name.endswith('.csv') else pd.read_excel(excel_file)
+                # 입력받은 행(Row) 이전의 쓸데없는 제목이나 공백은 모조리 무시하고 진짜 데이터만 읽어옵니다.
+                skip_rows = header_row - 1
+                if excel_file.name.endswith('.csv'):
+                    raw = pd.read_csv(excel_file, encoding='utf-8-sig', skiprows=skip_rows)
+                else:
+                    raw = pd.read_excel(excel_file, skiprows=skip_rows)
                 
-                # ⭐ 핵심 원인 해결: 눈에 안보이는 빈 줄이나 결측치(NaN) 행을 모조리 날려버립니다.
-                raw = raw.dropna(how='all')
+                raw = raw.dropna(how='all') # 완전히 빈 줄 삭제
                 
                 mapped = pd.DataFrame()
-                # 수십 개의 한글 키워드 추가 (어떤 양식이든 알아서 찾아 넣습니다)
                 mapped["pjt_no"] = safe_get(raw, ['pjt', 'no', '번호', '순번', 'id'], '-')
                 mapped["company"] = safe_get(raw, ['company', '업체', '고객사', '발주처', '기관', '회사'], '-')
                 mapped["pjt_name"] = safe_get(raw, ['name', '프로젝트', '사업명', '건명', '내용', '타이틀'], '-')
@@ -322,13 +330,13 @@ elif menu == MENU_4:
                 mapped["amount"] = pd.to_numeric(amt_series, errors='coerce').fillna(0).astype(int)
                 
                 mapped["remarks"] = safe_get(raw, ['remarks', '비고', '특이', '이슈', '메모'], '-')
-                mapped["updated_at"] = get_kst_now().strftime("%Y-%m-%d %H:%M") # 한국 시간 강제 박제
+                mapped["updated_at"] = get_kst_date() # 날짜만 저장
                 
                 conn = sqlite3.connect(DB_PATH)
                 mapped.to_sql('projects', conn, if_exists='append', index=False)
                 conn.commit()
                 conn.close()
-                st.success("🎉 빈칸이나 오류 없이 완벽하게 데이터가 통합되었습니다!"); st.rerun()
+                st.success("🎉 빈칸 없이 완벽하게 데이터가 통합되었습니다!"); st.rerun()
             except Exception as e:
                 st.error(f"업로드 중 에러가 발생했습니다: {e}")
                 
@@ -340,4 +348,4 @@ elif menu == MENU_4:
                 df_e.to_excel(w, index=False, sheet_name="파이프라인")
                 sh = w.sheets['파이프라인']; idx = df_e.columns.get_loc('amount') + 1 
                 for r in range(2, len(df_e) + 2): sh.cell(row=r, column=idx).number_format = '"₩" #,##0'
-            st.download_button("📥 백업 파일 다운로드", out.getvalue(), f"DEFOG_DB_{get_kst_now().strftime('%m%d')}.xlsx", use_container_width=True)
+            st.download_button("📥 백업 파일 다운로드", out.getvalue(), f"DEFOG_DB_{get_kst_date()}.xlsx", use_container_width=True)
