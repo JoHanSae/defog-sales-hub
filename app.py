@@ -96,4 +96,198 @@ c_h1, c_h2 = st.columns([9, 1])
 with c_h1:
     st.markdown(f"<h2 style='color:#1e3a8a; font-weight:800;'>🚀 DEFOG 영업 파이프라인 허브 <span style='font-size:16px; color:#64748b;'>({st.session_state['user_name']} 접속중)</span></h2>", unsafe_allow_html=True)
 with c_h2:
-    if st.button("로그아
+    if st.button("로그아웃"):
+        st.session_state['logged_in'] = False
+        st.rerun()
+
+tabs = st.tabs(["📝 통합 데이터 편집기", "🗣️ 주간 영업 미팅 보드", "📊 경영진 대시보드", "⚙️ 시스템 설정"])
+
+# ═════════════════════════════════════════════════════════════════════════════
+# [Tab 1] 통합 데이터 편집기
+# ═════════════════════════════════════════════════════════════════════════════
+with tabs[0]:
+    with st.expander("🚀 [클릭] 스마트 신규 프로젝트 등록 (담당자 자동선택 지원)", expanded=False):
+        with st.form("quick_add_form"):
+            st.markdown("💡 엑셀 표 맨 아래에 빈칸을 더블클릭해서 넣을 수도 있지만, 이 폼을 쓰면 훨씬 빠르고 정확합니다.")
+            f1, f2, f3, f4 = st.columns(4)
+            with f1: f_no = st.text_input("PJT No (예: PJT-26-001)")
+            with f2: f_comp = st.text_input("수주업체 *")
+            with f3: f_name = st.text_input("프로젝트명 *")
+            with f4: f_amt = st.number_input("수주금액 (원)", min_value=0, step=1000000)
+            
+            f5, f6, f7, f8 = st.columns(4)
+            with f5: f_cat = st.selectbox("구분", ["PRODUCT", "SOLUTION", "기타"])
+            with f6: f_stat = st.selectbox("상태", STATUS_LIST)
+            with f7: 
+                f_mgr_sel = st.selectbox("담당자 선택", DEFAULT_MANAGERS + ["== 직접 입력 =="])
+            with f8:
+                f_mgr_cust = st.text_input("담당자 직접 입력 (위에서 선택 시)")
+                
+            f_prod = st.text_input("제안제품 (예: INROW / RDC)")
+            
+            if st.form_submit_button("등록 완료", use_container_width=True):
+                if f_comp and f_name:
+                    final_mgr = f_mgr_cust if f_mgr_sel == "== 직접 입력 ==" and f_mgr_cust else f_mgr_sel
+                    final_mgr = final_mgr if final_mgr != "== 직접 입력 ==" else "-"
+                    
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.execute("""
+                        INSERT INTO projects (pjt_no, company, pjt_name, category, status, manager, proposed_product, amount, updated_at) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (f_no, f_comp, f_name, f_cat, f_stat, final_mgr, f_prod, int(f_amt), datetime.now().strftime("%Y-%m-%d %H:%M")))
+                    conn.commit()
+                    conn.close()
+                    st.success("✅ 신규 프로젝트가 성공적으로 등록되었습니다!")
+                    st.rerun()
+                else:
+                    st.error("수주업체와 프로젝트명은 필수입니다.")
+
+    st.markdown("<p style='color:#64748b; margin-top:10px;'>💡 <b>Tip:</b> 표 안을 더블클릭해 직접 수정할 수 있습니다. 금액은 숫자만 치면 알아서 콤마가 붙습니다.</p>", unsafe_allow_html=True)
+    
+    df_current = get_db_data()
+    df_current['display_amount'] = df_current['amount'].apply(lambda x: f"{int(x):,}" if pd.notnull(x) and str(x).strip() != '' else "0")
+    
+    edited_df = st.data_editor(
+        df_current,
+        num_rows="dynamic",
+        use_container_width=True,
+        height=600,
+        column_config={
+            "amount": None, 
+            "display_amount": st.column_config.TextColumn("수주금액 (원) ✏️", width="medium"), 
+            "pjt_no": st.column_config.TextColumn("PJT No", width="small"),
+            "company": st.column_config.TextColumn("수주업체", width="medium"),
+            "pjt_name": st.column_config.TextColumn("프로젝트명", width="large"),
+            "category": st.column_config.SelectboxColumn("구분", options=["PRODUCT", "SOLUTION", "기타"], width="small"),
+            "status": st.column_config.SelectboxColumn("상태", options=STATUS_LIST, width="small"),
+            "manager": st.column_config.TextColumn("담당자 (자유입력)", width="small"),
+            "proposed_product": st.column_config.TextColumn("제안제품", width="medium"),
+            "updated_at": st.column_config.TextColumn("최종 업데이트", disabled=True, width="small")
+        },
+        key="main_editor"
+    )
+
+    if st.button("💾 데이터베이스 저장 (변경사항 확정)", type="primary", use_container_width=True):
+        try:
+            edited_df['amount'] = edited_df['display_amount'].astype(str).str.replace(r'[^\d\-]', '', regex=True)
+            edited_df['amount'] = pd.to_numeric(edited_df['amount'], errors='coerce').fillna(0).astype(int)
+            edited_df = edited_df.drop(columns=['display_amount'])
+            edited_df.fillna("-", inplace=True)
+            edited_df['updated_at'] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("DELETE FROM projects")
+            edited_df.to_sql('projects', conn, if_exists='append', index=False)
+            conn.commit()
+            conn.close()
+            st.success("✅ 저장 완료! 콤마 정렬 및 모든 데이터가 완벽하게 업데이트되었습니다.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"저장 중 오류: {e}")
+
+# ═════════════════════════════════════════════════════════════════════════════
+# [Tab 2] 🗣️ 주간 영업 미팅 보드 
+# ═════════════════════════════════════════════════════════════════════════════
+with tabs[1]:
+    st.markdown("### 🗣️ 주간 영업 회의용 뷰어")
+    st.markdown("<p style='color:gray;'>실수 데이터를 지울 걱정 없는 <b>읽기 전용 모드</b>입니다. 미팅 시 화면에 띄워놓고 보고하세요.</p>", unsafe_allow_html=True)
+    
+    df_meet = get_db_data()
+    if not df_meet.empty:
+        col_f1, col_f2 = st.columns([7, 3])
+        with col_f1:
+            sel_status = st.multiselect("🔍 보고할 상태(Status) 필터링", STATUS_LIST, default=STATUS_LIST)
+        with col_f2:
+            unique_mgr = df_meet['manager'].unique().tolist()
+            sel_mgr = st.multiselect("👨‍💼 담당자 필터링", unique_mgr, default=unique_mgr)
+            
+        meet_filtered = df_meet[df_meet['status'].isin(sel_status) & df_meet['manager'].isin(sel_mgr)]
+        meet_filtered['수주금액'] = meet_filtered['amount'].apply(lambda x: f"₩ {int(x):,}")
+        meet_show = meet_filtered[['updated_at', 'status', 'company', 'pjt_name', 'manager', '수주금액', 'proposed_product']]
+        meet_show.columns = ['날짜', '상태', '수주업체', '프로젝트명', '담당자', '수주금액', '제안제품']
+        
+        meet_show = meet_show.sort_values(by='날짜', ascending=False).reset_index(drop=True)
+        
+        st.dataframe(meet_show, use_container_width=True, height=500)
+        st.markdown(f"**총 조회 건수:** {len(meet_show)}건 | **필터링된 총액:** ₩ {meet_filtered['amount'].sum():,}원")
+    else:
+        st.info("데이터가 없습니다.")
+
+# ═════════════════════════════════════════════════════════════════════════════
+# [Tab 3] 📊 경영진 대시보드
+# ═════════════════════════════════════════════════════════════════════════════
+with tabs[2]:
+    df_dash = get_db_data()
+    if df_dash.empty:
+        st.info("현재 등록된 데이터가 없습니다.")
+    else:
+        won_amt = df_dash[df_dash['status'] == "🟢 완료"]['amount'].sum()
+        active_amt = df_dash[~df_dash['status'].isin(["🟢 완료", "🔴 Drop"])]['amount'].sum()
+        
+        m1, m2, m3, m4 = st.columns(4)
+        m1.markdown(f"<div class='metric-card'><small>현재 진행/견적 금액</small><h3>₩ {active_amt:,}</h3></div>", unsafe_allow_html=True)
+        m2.markdown(f"<div class='metric-card' style='border-top-color:#10b981;'><small>올해 수주 확정액 (완료)</small><h3 style='color:#10b981;'>₩ {won_amt:,}</h3></div>", unsafe_allow_html=True)
+        m3.markdown(f"<div class='metric-card' style='border-top-color:#f59e0b;'><small>총 파이프라인 관리 건수</small><h3 style='color:#f59e0b;'>{len(df_dash)} 건</h3></div>", unsafe_allow_html=True)
+        
+        closed_won = len(df_dash[df_dash['status'] == "🟢 완료"])
+        closed_lost = len(df_dash[df_dash['status'] == "🔴 Drop"])
+        win_rate = (closed_won / (closed_won + closed_lost) * 100) if (closed_won + closed_lost) > 0 else 0
+        m4.markdown(f"<div class='metric-card' style='border-top-color:#8b5cf6;'><small>프로젝트 수주 성공률</small><h3 style='color:#8b5cf6;'>{win_rate:.1f}%</h3></div>", unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            funnel_data = df_dash.groupby('status')['amount'].sum().reset_index()
+            order = {"🔵 견적": 1, "🟡 진행중": 2, "🟠 납품대기중": 3, "🟢 완료": 4, "🔴 Drop": 5}
+            funnel_data['order'] = funnel_data['status'].map(order)
+            funnel_data = funnel_data.sort_values('order').drop(columns=['order'])
+            
+            fig_funnel = px.funnel(funnel_data, x='amount', y='status', title="💰 영업 단계별 퍼널 (금액 규모)", color_discrete_sequence=['#2563eb'])
+            st.plotly_chart(fig_funnel, use_container_width=True)
+            
+        with col_g2:
+            fig_bar = px.bar(df_dash, x='manager', y='amount', color='status', title="👨‍💼 담당자별 영업 현황 (금액)", 
+                             color_discrete_map={"🟢 완료":"#10b981", "🔵 견적":"#3b82f6", "🟡 진행중":"#f59e0b", "🟠 납품대기중":"#f97316", "🔴 Drop":"#ef4444"})
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+# ═════════════════════════════════════════════════════════════════════════════
+# [Tab 4] ⚙️ 시스템 설정 및 동기화
+# ═════════════════════════════════════════════════════════════════════════════
+with tabs[3]:
+    c_up, c_down = st.columns(2)
+    with c_up:
+        st.markdown("#### 📥 엑셀 대량 등록")
+        excel_file = st.file_uploader("파일을 선택하세요", type=['csv', 'xlsx'])
+        if excel_file and st.button("🚀 데이터 동기화", use_container_width=True):
+            try:
+                raw = pd.read_csv(excel_file, encoding='utf-8-sig') if excel_file.name.endswith('.csv') else pd.read_excel(excel_file)
+                mapped = pd.DataFrame({
+                    "pjt_no": raw.get('프로젝트 번호', '-'),
+                    "company": raw.get('프로젝트 수주 업체', raw.get('업체명', '-')),
+                    "pjt_name": raw.get('프로젝트 명', raw.get('사업명', '-')),
+                    "category": raw.get('구분', 'PRODUCT'),
+                    "status": raw.get('상태', '견적').apply(clean_status),
+                    "manager": raw.get('관리자', raw.get('담당자', '-')),
+                    "proposed_product": raw.get('제안 제품', raw.get('제안제품', '-')),
+                    "amount": pd.to_numeric(raw.get('수주 금액', raw.get('수주금액', 0)), errors='coerce').fillna(0).astype(int),
+                    "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+                })
+                mapped.fillna("-", inplace=True)
+                conn = sqlite3.connect(DB_PATH)
+                mapped.to_sql('projects', conn, if_exists='append', index=False)
+                conn.commit()
+                conn.close()
+                st.success("완벽하게 통합되었습니다!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"업로드 에러: {e}")
+                
+    with c_down:
+        st.markdown("#### 📤 엑셀 백업 다운로드")
+        if st.button("🔄 최신 엑셀 백업본 생성", use_container_width=True):
+            df_export = get_db_data()
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_export.to_excel(writer, index=False, sheet_name="파이프라인")
+            st.download_button("📥 백업 다운로드", output.getvalue(), f"DEFOG_Master_DB_{datetime.now().strftime('%m%d')}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
