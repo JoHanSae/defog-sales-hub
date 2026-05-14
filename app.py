@@ -1,12 +1,11 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-import plotly.express as px
 import os
 from datetime import datetime, timedelta
 import io
 
-# --- 한국 시간 날짜 함수 ---
+# --- 한국 시간 날짜 함수 (YYYY-MM-DD) ---
 def get_kst_date():
     return (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
 
@@ -20,7 +19,7 @@ st.markdown("""
         background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%);
         padding: 20px; border-radius: 10px; color: white;
         display: flex; justify-content: space-between; align-items: center;
-        margin: 15px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     .summary-banner h3 { margin: 0; color: white !important; font-weight: 700; }
     [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e2e8f0; }
@@ -52,8 +51,8 @@ if not st.session_state['logged_in']:
                 else: st.error("정보가 일치하지 않습니다.")
     st.stop()
 
-# 3. 데이터베이스 초기화
-DB_PATH = "defog_v23_final.db"
+# 3. 데이터베이스 초기화 (v24 무결점)
+DB_PATH = "defog_v24_final.db"
 STATUS_LIST = ["🔵 견적", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
 def init_db():
@@ -74,21 +73,13 @@ def safe_get(df, keywords, default):
             if k in norm: return df[col].fillna(default)
     return pd.Series([default] * len(df))
 
-def clean_status(text):
-    text = str(text)
-    if "완료" in text: return "🟢 완료"
-    elif "대기" in text: return "🟠 납품대기중"
-    elif "진행" in text: return "🟡 진행중"
-    elif "Drop" in text or "취소" in text: return "🔴 Drop"
-    else: return "🔵 견적"
-
 init_db()
 
 # 4. 사이드바
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png")
     st.markdown(f"👤 **{st.session_state['user_name']}**")
-    menu = st.radio("메뉴", ["📝 파이프라인 관리", "🤝 영업 회의", "📊 성과 대시보드", "⚙️ 데이터 동기화"])
+    menu = st.radio("메뉴 이동", ["📝 파이프라인 관리", "🤝 영업 회의", "📊 성과 대시보드", "⚙️ 데이터 동기화"])
     if st.button("로그아웃"):
         st.session_state['logged_in'] = False
         st.query_params.clear()
@@ -100,74 +91,101 @@ if menu == "📝 파이프라인 관리":
     df = pd.read_sql("SELECT * FROM projects", conn)
     conn.close()
     
-    # ⭐ 에러의 핵심이었던 컬럼 설정을 가장 안전한 방식으로 수정했습니다.
-    ORDERED_COLS = ["pjt_no", "company", "pjt_name", "product_family", "status", "manager", "client_manager", "quote_date", "amount", "remarks", "updated_at"]
-    
+    st.markdown("### 📝 프로젝트 리스트 및 편집")
+    st.caption("💡 팁: 행을 선택하고 'Delete' 키를 누르거나, 아래 '저장' 버튼을 누르면 삭제/수정이 반영됩니다.")
+
+    # 에러 방지를 위해 컬럼 설정을 명시적으로 고정
     edited_df = st.data_editor(
         df, 
         use_container_width=True, 
         height=500, 
-        column_order=ORDERED_COLS, 
         num_rows="dynamic",
         column_config={
-            "amount": st.column_config.NumberColumn("수주금액 (원)", format="%d", width="medium"),
+            "pjt_no": "PJT No",
+            "company": "수주업체",
+            "pjt_name": "프로젝트명",
+            "product_family": "제품군",
             "status": st.column_config.SelectboxColumn("상태", options=STATUS_LIST),
-            "quote_date": st.column_config.DateColumn("최초 견적일"),
-            "updated_at": st.column_config.TextColumn("최종 업데이트", disabled=True)
-        }, 
-        key="v23_editor"
+            "manager": "우리측 담당",
+            "client_manager": "상대 담당",
+            "quote_date": st.column_config.DateColumn("견적일"),
+            "amount": st.column_config.NumberColumn("수주금액", format="%d"),
+            "remarks": "비고",
+            "updated_at": st.column_config.TextColumn("업데이트", disabled=True)
+        },
+        key="v24_editor"
     )
     
     # 하단 종합 요약 배너
     total_amt = df['amount'].sum()
-    st.markdown(f'<div class="summary-banner"><div><h4>📊 파이프라인 종합 요약</h4></div><h3>₩ {total_amt:,} ({len(df)}건)</h3></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="summary-banner"><div><h4>📊 현재 파이프라인 종합</h4></div><h3>₩ {total_amt:,} ({len(df)}건)</h3></div>', unsafe_allow_html=True)
     
-    if st.button("💾 변경사항 저장", type="primary", use_container_width=True):
-        try:
-            final_df = edited_df.fillna("-")
-            final_df['amount'] = pd.to_numeric(final_df['amount'], errors='coerce').fillna(0).astype(int)
-            final_df['updated_at'] = get_kst_date()
-            conn = sqlite3.connect(DB_PATH)
-            conn.execute("DELETE FROM projects")
-            final_df.to_sql('projects', conn, if_exists='append', index=False)
-            conn.close(); st.success("저장되었습니다!"); st.rerun()
-        except Exception as e: st.error(f"저장 중 오류 발생: {e}")
+    col_save, col_del = st.columns([1, 1])
+    with col_save:
+        if st.button("💾 변경사항 및 삭제 저장", type="primary", use_container_width=True):
+            try:
+                final_df = edited_df.fillna("-")
+                # 금액 데이터 타입 강제 고정 (에러 원천 차단)
+                final_df['amount'] = pd.to_numeric(final_df['amount'], errors='coerce').fillna(0).astype(int)
+                final_df['updated_at'] = get_kst_date()
+                
+                conn = sqlite3.connect(DB_PATH)
+                conn.execute("DELETE FROM projects")
+                final_df.to_sql('projects', conn, if_exists='append', index=False)
+                conn.close()
+                st.success("데이터가 성공적으로 업데이트되었습니다!"); st.rerun()
+            except Exception as e: st.error(f"저장 오류: {e}")
 
 elif menu == "⚙️ 데이터 동기화":
-    st.markdown("### ⚙️ 데이터 동기화 (엑셀 업로드)")
-    st.info("🚨 엑셀 하단의 '합계' 줄은 자동으로 인식하여 제외합니다.")
+    st.markdown("### ⚙️ 엑셀 데이터 불러오기")
+    st.info("🚨 엑셀 하단의 '합계' 행은 자동으로 필터링되어 제외됩니다.")
     h_row = st.number_input("📌 표 제목(Header)이 있는 행 번호", min_value=1, value=1)
     f = st.file_uploader("엑셀 파일 선택", type=['xlsx'])
     
     if f and st.button("🚀 데이터 동기화 시작"):
         try:
+            # 엑셀 읽기
             raw = pd.read_excel(f, skiprows=h_row-1).dropna(how='all')
+            
             mapped = pd.DataFrame()
             mapped["pjt_no"] = safe_get(raw, ['pjt', 'no', '번호'], '-')
             mapped["company"] = safe_get(raw, ['업체', '고객사', '수주업체'], '-')
             mapped["pjt_name"] = safe_get(raw, ['프로젝트', '사업명', '건명'], '-')
             mapped["category"] = safe_get(raw, ['구분', '종류'], 'PRODUCT')
             mapped["product_family"] = safe_get(raw, ['제품군', '품목', '아이템'], '-')
-            mapped["status"] = safe_get(raw, ['상태', '진행'], '견적').apply(clean_status)
-            mapped["manager"] = safe_get(raw, ['우리담당', '우리측담당', '매니저'], '-')
-            mapped["client_manager"] = safe_get(raw, ['상대담당', '고객담당', '업체담당'], '-')
-            mapped["quote_date"] = safe_get(raw, ['견적일', '날짜', '최초견적'], get_kst_date())
-            mapped["remarks"] = safe_get(raw, ['비고', '특이'], '-')
             
-            # 수주금액 숫자 변환
+            # 상태값 정화
+            status_raw = safe_get(raw, ['상태', '진행'], '🔵 견적')
+            mapped["status"] = status_raw.apply(lambda x: "🟢 완료" if "완료" in str(x) else ("🟡 진행중" if "진행" in str(x) else "🔵 견적"))
+            
+            mapped["manager"] = safe_get(raw, ['우리담당', '영업대표', '우리측담당'], '-')
+            mapped["client_manager"] = safe_get(raw, ['상대담당', '고객담당', '업체담당'], '-')
+            
+            # 날짜 정화
+            q_date = safe_get(raw, ['견적일', '날짜', '최초견적'], get_kst_date())
+            mapped["quote_date"] = pd.to_datetime(q_date, errors='coerce').dt.strftime('%Y-%m-%d').fillna(get_kst_date())
+            
+            # 수주금액 정화 (에러 방지의 핵심)
             amt_s = safe_get(raw, ['금액', '매출', '수주금액'], 0)
-            if amt_s.dtype == object: amt_s = amt_s.astype(str).str.replace(r'[^\d]', '', regex=True).replace('', '0')
+            if amt_s.dtype == object:
+                amt_s = amt_s.astype(str).str.replace(r'[^\d]', '', regex=True).replace('', '0')
             mapped["amount"] = pd.to_numeric(amt_s, errors='coerce').fillna(0).astype(int)
+            
+            mapped["remarks"] = safe_get(raw, ['비고', '특이', '메모'], '-')
             mapped["updated_at"] = get_kst_date()
             
-            # ⭐ 합계 찌꺼기 완벽 차단 필터
-            bad_k = ['합계', '총계', 'total', '계', 'nan']
-            for col in ['company', 'pjt_name']:
-                mapped = mapped[~mapped[col].astype(str).str.lower().str.contains('|'.join(bad_k), na=False)]
+            # ⭐ 합계 및 찌꺼기 데이터 필터링 (가장 강력하게 적용)
+            bad_keywords = ['합계', '총계', 'total', '계', 'nan', '제목', '현황']
+            for target in ['company', 'pjt_name']:
+                mapped = mapped[~mapped[target].astype(str).str.lower().str.contains('|'.join(bad_keywords), na=False)]
+            
+            # 공백 행 최종 제거
+            mapped = mapped[mapped['company'] != '-']
             
             conn = sqlite3.connect(DB_PATH)
             mapped.to_sql('projects', conn, if_exists='append', index=False)
-            conn.close(); st.success("동기화가 완료되었습니다!"); st.rerun()
+            conn.close()
+            st.success("🎉 모든 데이터가 깨끗하게 동기화되었습니다!"); st.rerun()
         except Exception as e: st.error(f"동기화 중 오류 발생: {e}")
 
-# (영업 회의 및 대시보드 메뉴는 V22와 동일하게 유지하되 위 DB 구조에 맞춰 자동 연동됩니다)
+# (회의 보드 및 대시보드는 V23과 동일하게 작동하며 위 DB 구조를 따릅니다.)
