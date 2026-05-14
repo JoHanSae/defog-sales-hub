@@ -2,28 +2,33 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime
 import io
 
-# ─── 1. 페이지 및 완벽한 시각적 테마 (하얀색 아이콘 버그 완전 해결) ─────────────
-st.set_page_config(page_title="DEFOG PROJECT MANAGEMENT", page_icon="🚀", layout="wide")
+# ─── 1. 페이지 설정 및 다크모드 대응 UI/UX 최적화 ─────────────────────────────
+st.set_page_config(page_title="DEFOG 영업 허브", page_icon="🚀", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #f8fafc; color: #0f172a; }
-    
-    /* 투명해지는 아이콘(휴지통, 플러스 버튼 등) 강제 진한 회색 처리 */
     [data-testid="stDataFrame"] svg { stroke: #475569 !important; fill: #475569 !important; }
     
     .metric-card {
-        background: white; padding: 25px; border-radius: 12px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); 
-        border-top: 5px solid #2563eb;
+        background: white; padding: 20px; border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05); 
+        border-top: 5px solid #2563eb; transition: transform 0.2s;
+    }
+    .metric-card:hover { transform: translateY(-2px); }
+    
+    .meeting-card {
+        background: #ffffff; padding: 15px; border-radius: 8px;
+        border-left: 5px solid #f59e0b; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# ─── 2. 보안 설정 ─────────────────────────────────────────────────────────
+# ─── 2. 팀원 계정 설정 ─────────────────────────────────────────────────────────
 USERS = {
     "manager": ("조한세 매니저", "defog!manager"),
     "leader":  ("영업팀장", "defog!leader"),
@@ -34,7 +39,7 @@ if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
 def show_login():
-    st.markdown("<div style='text-align: center; padding: 100px 0;'><h1 style='color:#1e3a8a;'>🚀 DEFOG Hub</h1><p style='color:#64748b;'>사내 통합 파이프라인 시스템</p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; padding: 100px 0;'><h1 style='color:#1e3a8a;'>🚀 DEFOG Hub</h1><p style='color:#64748b;'>사내 통합 파이프라인 관리 시스템 (Master)</p></div>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 1, 1])
     with c2:
         with st.form("login"):
@@ -51,8 +56,10 @@ def show_login():
 if not st.session_state['logged_in']:
     show_login()
 
-# ─── 3. 데이터베이스 ────────────────────────────────────────────────────────
-DB_PATH = "defog_v6_final.db"
+# ─── 3. 데이터베이스 및 전역 변수 설정 ──────────────────────────────────────────
+DB_PATH = "defog_v7_master.db" # DB 충돌 방지를 위해 새 이름 사용
+DEFAULT_MANAGERS = ["김형권", "김원중", "김용신", "이승호", "김민태", "한민혁", "조한새", "김혜지", "홍정희", "이수빈"]
+STATUS_LIST = ["🔵 견적", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -73,10 +80,6 @@ def get_db_data():
     conn.close()
     return df
 
-init_db()
-
-STATUS_LIST = ["🔵 견적", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
-
 def clean_status(text):
     text = str(text)
     if "완료" in text: return "🟢 완료"
@@ -85,24 +88,65 @@ def clean_status(text):
     elif "Drop" in text or "취소" in text: return "🔴 Drop"
     else: return "🔵 견적"
 
-# ─── 4. 메인 UI ──────────────────────────────────────────────────────────
+init_db()
+
+# ─── 4. 메인 화면 헤더 ────────────────────────────────────────────────────────
 c_h1, c_h2 = st.columns([9, 1])
 with c_h1:
-    st.markdown(f"<h2 style='color:#1e3a8a; font-weight:800;'>🚀 DEFOG PROJECT MANAGEMENT <span style='font-size:16px; color:#64748b;'>({st.session_state['user_name']} 접속중)</span></h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='color:#1e3a8a; font-weight:800;'>🚀 DEFOG 영업 파이프라인 허브 <span style='font-size:16px; color:#64748b;'>({st.session_state['user_name']} 접속중)</span></h2>", unsafe_allow_html=True)
 with c_h2:
     if st.button("로그아웃"):
         st.session_state['logged_in'] = False
         st.rerun()
 
-tabs = st.tabs(["📝 파이프라인 엑셀 편집기", "📊 영업 현황 대시보드", "⚙️ 데이터 엑셀 동기화"])
+tabs = st.tabs(["📝 통합 데이터 편집기", "🗣️ 주간 영업 미팅 보드", "📊 경영진 대시보드", "⚙️ 시스템 설정"])
 
-# [Tab 1] 편집기 (금액 콤마 완벽 해결 버전)
+# ═════════════════════════════════════════════════════════════════════════════
+# [Tab 1] 통합 데이터 편집기 (스마트 폼 & 콤마 완벽 지원)
+# ═════════════════════════════════════════════════════════════════════════════
 with tabs[0]:
-    st.markdown("<p style='color:#64748b;'>💡 <b>Tip:</b> 금액칸에 <b>123456789</b> 처럼 숫자만 대충 치고 [저장]을 누르시면 알아서 <b>123,456,789</b> 로 예쁘게 정리됩니다.</p>", unsafe_allow_html=True)
+    # --- 영업 관리자의 아이디어: 스마트 신규 등록 폼 ---
+    with st.expander("🚀 [클릭] 스마트 신규 프로젝트 등록 (담당자 자동선택 지원)", expanded=False):
+        with st.form("quick_add_form"):
+            st.markdown("💡 엑셀 표 맨 아래에 빈칸을 더블클릭해서 넣을 수도 있지만, 이 폼을 쓰면 훨씬 빠르고 정확합니다.")
+            f1, f2, f3, f4 = st.columns(4)
+            with f1: f_no = st.text_input("PJT No (예: PJT-26-001)")
+            with f2: f_comp = st.text_input("수주업체 *")
+            with f3: f_name = st.text_input("프로젝트명 *")
+            with f4: f_amt = st.number_input("수주금액 (원)", min_value=0, step=1000000)
+            
+            f5, f6, f7, f8 = st.columns(4)
+            with f5: f_cat = st.selectbox("구분", ["PRODUCT", "SOLUTION", "기타"])
+            with f6: f_stat = st.selectbox("상태", STATUS_LIST)
+            with f7: 
+                # 선택과 직접 입력을 동시에 지원하는 매니저 맞춤 로직
+                f_mgr_sel = st.selectbox("담당자 선택", DEFAULT_MANAGERS + ["== 직접 입력 =="])
+            with f8:
+                f_mgr_cust = st.text_input("담당자 직접 입력 (위에서 선택 시)")
+                
+            f_prod = st.text_input("제안제품 (예: INROW / RDC)")
+            
+            if st.form_submit_button("등록 완료", use_container_width=True):
+                if f_comp and f_name:
+                    final_mgr = f_mgr_cust if f_mgr_sel == "== 직접 입력 ==" and f_mgr_cust else f_mgr_sel
+                    final_mgr = final_mgr if final_mgr != "== 직접 입력 ==" else "-"
+                    
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.execute("""
+                        INSERT INTO projects (pjt_no, company, pjt_name, category, status, manager, proposed_product, amount, updated_at) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (f_no, f_comp, f_name, f_cat, f_stat, final_mgr, f_prod, int(f_amt), datetime.now().strftime("%Y-%m-%d %H:%M")))
+                    conn.commit()
+                    conn.close()
+                    st.success("✅ 신규 프로젝트가 성공적으로 등록되었습니다!")
+                    st.rerun()
+                else:
+                    st.error("수주업체와 프로젝트명은 필수입니다.")
+
+    st.markdown("<p style='color:#64748b; margin-top:10px;'>💡 <b>Tip:</b> 표 안을 더블클릭해 직접 수정할 수 있습니다. 금액은 숫자만 치면 알아서 콤마가 붙습니다.</p>", unsafe_allow_html=True)
     
     df_current = get_db_data()
-    
-    # ⭐ 핵심 해결: 숫자를 강제로 콤마가 찍힌 문자로 변환하여 보여줌
+    # 수주금액 콤마 지원 로직 (강제 문자열 변환)
     df_current['display_amount'] = df_current['amount'].apply(lambda x: f"{int(x):,}" if pd.notnull(x) and str(x).strip() != '' else "0")
     
     edited_df = st.data_editor(
@@ -111,26 +155,25 @@ with tabs[0]:
         use_container_width=True,
         height=600,
         column_config={
-            "amount": None, # 기존 숫자 전용 열은 안 보이게 숨김
-            "display_amount": st.column_config.TextColumn("수주금액 (원)", width="medium"), # 콤마가 찍히는 새 열
+            "amount": None, 
+            "display_amount": st.column_config.TextColumn("수주금액 (원) ✏️", width="medium"), 
             "pjt_no": st.column_config.TextColumn("PJT No", width="small"),
             "company": st.column_config.TextColumn("수주업체", width="medium"),
             "pjt_name": st.column_config.TextColumn("프로젝트명", width="large"),
             "category": st.column_config.SelectboxColumn("구분", options=["PRODUCT", "SOLUTION", "기타"], width="small"),
             "status": st.column_config.SelectboxColumn("상태", options=STATUS_LIST, width="small"),
-            "manager": st.column_config.TextColumn("관리자", width="small"),
+            "manager": st.column_config.TextColumn("담당자 (자유입력)", width="small"), # 자유 입력 가능
             "proposed_product": st.column_config.TextColumn("제안제품", width="medium"),
             "updated_at": st.column_config.TextColumn("최종 업데이트", disabled=True, width="small")
         },
         key="main_editor"
     )
 
-    if st.button("💾 변경사항 안전하게 저장하기", type="primary", use_container_width=True):
+    if st.button("💾 데이터베이스 저장 (변경사항 확정)", type="primary", use_container_width=True):
         try:
-            # ⭐ 핵심 로직: 사용자가 입력한 값에서 숫자 빼고 다 지운 뒤 다시 정수형으로 DB에 저장
             edited_df['amount'] = edited_df['display_amount'].astype(str).str.replace(r'[^\d\-]', '', regex=True)
             edited_df['amount'] = pd.to_numeric(edited_df['amount'], errors='coerce').fillna(0).astype(int)
-            edited_df = edited_df.drop(columns=['display_amount']) # 임시 열은 DB 가기 전에 삭제
+            edited_df = edited_df.drop(columns=['display_amount'])
             edited_df.fillna("-", inplace=True)
             edited_df['updated_at'] = datetime.now().strftime("%Y-%m-%d %H:%M")
             
@@ -139,48 +182,95 @@ with tabs[0]:
             edited_df.to_sql('projects', conn, if_exists='append', index=False)
             conn.commit()
             conn.close()
-            st.success("✅ 금액 콤마 변환 및 데이터 저장이 완벽하게 완료되었습니다!")
+            st.success("✅ 저장 완료! 콤마 정렬 및 모든 데이터가 완벽하게 업데이트되었습니다.")
             st.rerun()
         except Exception as e:
-            st.error(f"저장 중 오류 발생: {e}")
+            st.error(f"저장 중 오류: {e}")
 
-# [Tab 2] 대시보드
+# ═════════════════════════════════════════════════════════════════════════════
+# [Tab 2] 🗣️ 주간 영업 미팅 보드 (매니저 맞춤 기능)
+# ═════════════════════════════════════════════════════════════════════════════
 with tabs[1]:
-    df = get_db_data()
-    if df.empty:
+    st.markdown("### 🗣️ 주간 영업 회의용 뷰어")
+    st.markdown("<p style='color:gray;'>실수 데이터를 지울 걱정 없는 <b>읽기 전용 모드</b>입니다. 미팅 시 화면에 띄워놓고 보고하세요.</p>", unsafe_allow_html=True)
+    
+    df_meet = get_db_data()
+    if not df_meet.empty:
+        # 필터 컨트롤러
+        col_f1, col_f2 = st.columns([7, 3])
+        with col_f1:
+            sel_status = st.multiselect("🔍 보고할 상태(Status) 필터링", STATUS_LIST, default=STATUS_LIST)
+        with col_f2:
+            unique_mgr = df_meet['manager'].unique().tolist()
+            sel_mgr = st.multiselect("👨‍💼 담당자 필터링", unique_mgr, default=unique_mgr)
+            
+        # 데이터 필터링 적용
+        meet_filtered = df_meet[df_meet['status'].isin(sel_status) & df_meet['manager'].isin(sel_mgr)]
+        
+        # 보기 좋게 포맷팅
+        meet_filtered['수주금액'] = meet_filtered['amount'].apply(lambda x: f"₩ {int(x):,}")
+        meet_show = meet_filtered[['updated_at', 'status', 'company', 'pjt_name', 'manager', '수주금액', 'proposed_product']]
+        meet_show.columns = ['날짜', '상태', '수주업체', '프로젝트명', '담당자', '수주금액', '제안제품']
+        
+        # 기본은 날짜순(업데이트순) 정렬
+        meet_show = meet_show.sort_values(by='날짜', ascending=False).reset_index(drop=True)
+        
+        st.dataframe(meet_show, use_container_width=True, height=500)
+        
+        st.markdown(f"**총 조회 건수:** {len(meet_show)}건 | **필터링된 총액:** ₩ {meet_filtered['amount'].sum():,}원")
+    else:
+        st.info("데이터가 없습니다.")
+
+# ═════════════════════════════════════════════════════════════════════════════
+# [Tab 3] 📊 파이프라인 퍼널 & 경영진 대시보드
+# ═════════════════════════════════════════════════════════════════════════════
+with tabs[2]:
+    df_dash = get_db_data()
+    if df_dash.empty:
         st.info("현재 등록된 데이터가 없습니다.")
     else:
-        won_amt = df[df['status'].str.contains("완료")]['amount'].sum()
-        active_amt = df[~df['status'].str.contains("완료|Drop")]['amount'].sum()
+        won_amt = df_dash[df_dash['status'] == "🟢 완료"]['amount'].sum()
+        active_amt = df_dash[~df_dash['status'].isin(["🟢 완료", "🔴 Drop"])]['amount'].sum()
         
-        m1, m2, m3 = st.columns(3)
-        with m1:
-            st.markdown(f"<div class='metric-card'><small style='color:#64748b;'>현재 진행중인 사업</small><h2 style='margin:5px 0 0 0; color:#1e3a8a;'>₩ {active_amt:,}</h2></div>", unsafe_allow_html=True)
-        with m2:
-            st.markdown(f"<div class='metric-card' style='border-top-color:#10b981;'><small style='color:#64748b;'>올해 수주 확정액 (완료)</small><h2 style='margin:5px 0 0 0; color:#10b981;'>₩ {won_amt:,}</h2></div>", unsafe_allow_html=True)
-        with m3:
-            st.markdown(f"<div class='metric-card' style='border-top-color:#f59e0b;'><small style='color:#64748b;'>총 파이프라인 관리 건수</small><h2 style='margin:5px 0 0 0; color:#f59e0b;'>{len(df)} 건</h2></div>", unsafe_allow_html=True)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.markdown(f"<div class='metric-card'><small>현재 진행/견적 금액</small><h3>₩ {active_amt:,}</h3></div>", unsafe_allow_html=True)
+        m2.markdown(f"<div class='metric-card' style='border-top-color:#10b981;'><small>올해 수주 확정액 (완료)</small><h3 style='color:#10b981;'>₩ {won_amt:,}</h3></div>", unsafe_allow_html=True)
+        m3.markdown(f"<div class='metric-card' style='border-top-color:#f59e0b;'><small>총 파이프라인 관리 건수</small><h3 style='color:#f59e0b;'>{len(df_dash)} 건</h3></div>", unsafe_allow_html=True)
+        
+        # 수주 성공률 로직 (완료 / (완료+Drop)*100)
+        closed_won = len(df_dash[df_dash['status'] == "🟢 완료"])
+        closed_lost = len(df_dash[df_dash['status'] == "🔴 Drop"])
+        win_rate = (closed_won / (closed_won + closed_lost) * 100) if (closed_won + closed_lost) > 0 else 0
+        m4.markdown(f"<div class='metric-card' style='border-top-color:#8b5cf6;'><small>프로젝트 수주 성공률</small><h3 style='color:#8b5cf6;'>{win_rate:.1f}%</h3></div>", unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         
         col_g1, col_g2 = st.columns(2)
         with col_g1:
-            fig_bar = px.bar(df, x='manager', y='amount', color='status', title="담당자별 누적 영업 금액", 
-                             color_discrete_map={"🟢 완료":"#10b981", "🔵 견적":"#3b82f6", "🟡 진행중":"#f59e0b", "🟠 납품대기중":"#f97316", "🔴 Drop":"#ef4444"})
-            fig_bar.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig_bar, use_container_width=True)
+            # 상태별 퍼널(깔때기) 차트
+            funnel_data = df_dash.groupby('status')['amount'].sum().reset_index()
+            # 정렬 순서 강제 지정
+            order = {"🔵 견적": 1, "🟡 진행중": 2, "🟠 납품대기중": 3, "🟢 완료": 4, "🔴 Drop": 5}
+            funnel_data['order'] = funnel_data['status'].map(order)
+            funnel_data = funnel_data.sort_values('order').drop(columns=['order'])
+            
+            fig_funnel = px.funnel(funnel_data, x='amount', y='status', title="💰 영업 단계별 퍼널 (금액 규모)", color_discrete_sequence=['#2563eb'])
+            st.plotly_chart(fig_funnel, use_container_width=True)
+            
         with col_g2:
-            fig_pie = px.pie(df, names='status', values='amount', hole=0.5, title="금액 비중별 현재 상태")
-            fig_pie.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig_pie, use_container_width=True)
+            fig_bar = px.bar(df_dash, x='manager', y='amount', color='status', title="👨‍💼 담당자별 영업 현황 (금액)", 
+                             color_discrete_map={"🟢 완료":"#10b981", "🔵 견적":"#3b82f6", "🟡 진행중":"#f59e0b", "🟠 납품대기중":"#f97316", "🔴 Drop":"#ef4444"})
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-# [Tab 3] 데이터 동기화
-with tabs[2]:
+# ═════════════════════════════════════════════════════════════════════════════
+# [Tab 4] ⚙️ 시스템 설정 및 동기화
+# ═════════════════════════════════════════════════════════════════════════════
+with tabs[3]:
     c_up, c_down = st.columns(2)
     with c_up:
-        st.markdown("#### 📥 기존 엑셀 일괄 업로드")
+        st.markdown("#### 📥 엑셀 대량 등록")
         excel_file = st.file_uploader("파일을 선택하세요", type=['csv', 'xlsx'])
-        if excel_file and st.button("🚀 데이터 동기화 및 맵핑", use_container_width=True):
+        if excel_file and st.button("🚀 데이터 동기화", use_container_width=True):
             try:
                 raw = pd.read_csv(excel_file, encoding='utf-8-sig') if excel_file.name.endswith('.csv') else pd.read_excel(excel_file)
                 mapped = pd.DataFrame({
@@ -199,16 +289,16 @@ with tabs[2]:
                 mapped.to_sql('projects', conn, if_exists='append', index=False)
                 conn.commit()
                 conn.close()
-                st.success("데이터가 완벽하게 통합되었습니다!")
+                st.success("완벽하게 통합되었습니다!")
                 st.rerun()
             except Exception as e:
                 st.error(f"업로드 에러: {e}")
                 
     with c_down:
-        st.markdown("#### 📤 전체 데이터 백업")
-        if st.button("🔄 엑셀 파일 만들기", use_container_width=True):
+        st.markdown("#### 📤 엑셀 백업 다운로드")
+        if st.button("🔄 최신 엑셀 백업본 생성", use_container_width=True):
             df_export = get_db_data()
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_export.to_excel(writer, index=False, sheet_name="파이프라인")
-            st.download_button("📥 다운로드 (클릭)", output.getvalue(), f"DEFOG_Pipeline_{datetime.now().strftime('%m%d')}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            st.download_button("📥 백업 다운로드", output.getvalue(), f"DEFOG_Master_DB_{datetime.now().strftime('%m%d')}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
