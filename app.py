@@ -4,7 +4,7 @@ import sqlite3
 import plotly.express as px
 import os
 from datetime import datetime
-import io
+import iologo
 
 # ─── 1. 페이지 설정 및 다크모드 대응 UI/UX 최적화 ─────────────────────────────
 st.set_page_config(page_title="DEFOG 영업 허브", page_icon="🚀", layout="wide")
@@ -124,7 +124,7 @@ with st.sidebar:
     MENU_1 = "📝 프로젝트 파이프라인 관리"
     MENU_2 = "🤝 주간 영업 회의 보드"
     MENU_3 = "📊 성과 대시보드"
-    MENU_4 = "⚙️ 시스템 및 데이터 관리"
+    MENU_4 = "⚙️ DB 불러오기 / 내보내기"
     
     menu = st.radio(
         "메뉴 이동",
