@@ -34,11 +34,24 @@ USERS = {
     "manager": ("팀원", "defog!manager")
 }
 
+# ⭐ 핵심 디버깅: F5 새로고침 방어 로직 (통행증 검사)
 if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
+    ticket = st.query_params.get("ticket", "")
+    is_valid_ticket = False
+    
+    # URL에 유효한 통행증이 있으면 로그인 상태 복구
+    for uid in USERS:
+        if ticket == f"defog_auth_{uid}_valid":
+            st.session_state['logged_in'] = True
+            st.session_state['user_name'] = USERS[uid][0]
+            is_valid_ticket = True
+            break
+            
+    if not is_valid_ticket:
+        st.session_state['logged_in'] = False
+        st.session_state['user_name'] = ""
 
 def show_login():
-    # 로그인 화면에도 로고 띄우기 (파일이 있을 경우)
     if os.path.exists("logo.png"):
         col_logo1, col_logo2, col_logo3 = st.columns([2, 1, 2])
         with col_logo2:
@@ -54,6 +67,8 @@ def show_login():
                 if u_id in USERS and USERS[u_id][1] == u_pw:
                     st.session_state['logged_in'] = True
                     st.session_state['user_name'] = USERS[u_id][0]
+                    # ⭐ 로그인 성공 시 F5 방어용 통행증 발급
+                    st.query_params["ticket"] = f"defog_auth_{u_id}_valid"
                     st.rerun()
                 else: st.error("정보가 일치하지 않습니다.")
     st.stop()
@@ -97,7 +112,6 @@ init_db()
 
 # ─── 4. 프로페셔널 사이드바 네비게이션 ────────────────────────────────────────
 with st.sidebar:
-    # 🏢 1. 회사 로고 삽입 구역
     if os.path.exists("logo.png"):
         st.image("logo.png", use_container_width=True)
     else:
@@ -108,7 +122,6 @@ with st.sidebar:
     st.markdown(f"👤 **{st.session_state['user_name']}** 접속중")
     st.markdown("---")
     
-    # 📱 2. 사이드바 메뉴 
     menu = st.radio(
         "메뉴 이동",
         ["📝 통합 데이터 편집기", "🗣️ 주간 영업 미팅 보드", "📊 경영진 대시보드", "⚙️ 시스템 설정"],
@@ -118,6 +131,8 @@ with st.sidebar:
     st.markdown("---")
     if st.button("로그아웃", use_container_width=True):
         st.session_state['logged_in'] = False
+        # ⭐ 로그아웃 시 통행증 완벽 폐기
+        st.query_params.clear() 
         st.rerun()
 
 # 메인 헤더
@@ -209,7 +224,6 @@ elif menu == "🗣️ 주간 영업 미팅 보드":
     
     df_meet = get_db_data()
     if not df_meet.empty:
-        # 🔍 새 기능: 텍스트 즉시 검색 기능
         search_query = st.text_input("🔍 수주업체 또는 프로젝트명 빠른 검색", placeholder="예: 네이버, 서강대 등 키워드 입력")
         
         col_f1, col_f2 = st.columns([7, 3])
@@ -220,7 +234,6 @@ elif menu == "🗣️ 주간 영업 미팅 보드":
             
         meet_filtered = df_meet[df_meet['status'].isin(sel_status) & df_meet['manager'].isin(sel_mgr)]
         
-        # 검색어 필터 적용
         if search_query:
             meet_filtered = meet_filtered[meet_filtered['company'].str.contains(search_query, na=False) | meet_filtered['pjt_name'].str.contains(search_query, na=False)]
             
@@ -277,7 +290,7 @@ elif menu == "📊 경영진 대시보드":
 # [Menu 4] ⚙️ 시스템 설정
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == "⚙️ 시스템 설정":
-    st.info("🚨 클라우드 서버 특성상 데이터가 초기화될 수 있으므로, **주기적으로 엑셀 백업을 다운로드** 해두시길 권장합니다.")
+    st.info("🚨 클라우드 서버 특성상 장기간 미접속 시 데이터가 초기화될 수 있습니다. **매주 금요일 엑셀 백업을 생활화** 해주세요!")
     c_up, c_down = st.columns(2)
     with c_up:
         st.markdown("#### 📥 엑셀 대량 등록")
