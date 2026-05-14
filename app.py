@@ -33,9 +33,9 @@ USERS = {
     "manager": ("팀원", "defog!manager")
 }
 
-# ─── 3. 보안 및 URL 자동 클리닝 로직 (핵심 디버깅) ─────────────────────────────
+# ─── 3. F5 새로고침 방어 로직 (티켓 유지) ──────────────────────────────────────
 if 'logged_in' not in st.session_state:
-    # 1. URL 주소창에서 티켓 확인
+    # URL 주소창에서 티켓 확인 (이 티켓이 있어야 F5를 눌러도 안 튕깁니다!)
     ticket = st.query_params.get("ticket", "")
     is_valid_ticket = False
     
@@ -49,10 +49,6 @@ if 'logged_in' not in st.session_state:
     if not is_valid_ticket:
         st.session_state['logged_in'] = False
         st.session_state['user_name'] = ""
-
-# ⭐ 핵심 패치: 로그인에 성공한 상태라면, 주소창에 남아있는 티켓을 즉시 제거하여 노출 방지
-if st.session_state.get('logged_in') and st.query_params.get("ticket"):
-    st.query_params.clear()
 
 def show_login():
     if os.path.exists("logo.png"):
@@ -70,7 +66,7 @@ def show_login():
                 if u_id in USERS and USERS[u_id][1] == u_pw:
                     st.session_state['logged_in'] = True
                     st.session_state['user_name'] = USERS[u_id][0]
-                    # 티켓을 발급하고 즉시 리런하여 내부 인증 프로세스 가동
+                    # 로그인 성공 시 티켓 발급 및 유지 (F5 버그 해결)
                     st.query_params["ticket"] = f"defog_auth_{u_id}_valid"
                     st.rerun()
                 else: st.error("정보가 일치하지 않습니다.")
@@ -136,6 +132,11 @@ with st.sidebar:
         st.session_state['logged_in'] = False
         st.query_params.clear() 
         st.rerun()
+
+    # ⭐ 보안 공유용 안전 링크 고정 배치
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.info("🔗 **팀원 초대용 안전 링크**\n\n아래 주소를 복사해서 공유하세요. (주소창 복사 금지)")
+    st.code("https://defog-sales-app.streamlit.app/", language="text")
 
 st.markdown(f"<h2 style='color:#1e3a8a; font-weight:800; margin-bottom: 30px;'>{menu}</h2>", unsafe_allow_html=True)
 
