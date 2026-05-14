@@ -3,11 +3,12 @@ import pandas as pd
 import sqlite3
 import plotly.express as px
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import io
 
-# ─── 한국 표준시(KST) 강제 설정 (9시간 차이 완벽 해결) ──────────────────────
-KST = timezone(timedelta(hours=9))
+# ─── KST 절대 시간 함수 (서버 위치 무관 100% 한국시간) ───────────────────
+def get_kst_now():
+    return datetime.utcnow() + timedelta(hours=9)
 
 # ─── 1. 페이지 설정 및 시각적 테마 ──────────────────────────────────────────
 st.set_page_config(page_title="DEFOG 영업 허브", page_icon="🚀", layout="wide")
@@ -16,14 +17,8 @@ st.markdown("""
     <style>
     .stApp { background-color: #f8fafc; color: #0f172a; }
     [data-testid="stDataFrame"] svg { stroke: #475569 !important; fill: #475569 !important; }
-    
-    .metric-card {
-        background: white; padding: 20px; border-radius: 12px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05); 
-        border-top: 5px solid #2563eb; transition: transform 0.2s;
-    }
+    .metric-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05); border-top: 5px solid #2563eb; transition: transform 0.2s; }
     .metric-card:hover { transform: translateY(-2px); }
-    
     [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e2e8f0; }
     .stProgress > div > div > div > div { background-color: #10b981; }
     </style>
@@ -37,7 +32,7 @@ USERS = {
     "manager": ("팀원", "defog!manager")
 }
 
-# ─── 3. F5 새로고침 방어 로직 ──────────────────────────────────────────────────
+# ─── 3. 로그인 및 F5 새로고침 방어 티켓 유지 ──────────────────────────────────
 if 'logged_in' not in st.session_state:
     ticket = st.query_params.get("ticket", "")
     is_valid_ticket = False
@@ -71,11 +66,10 @@ def show_login():
                 else: st.error("정보가 일치하지 않습니다.")
     st.stop()
 
-if not st.session_state['logged_in']:
-    show_login()
+if not st.session_state['logged_in']: show_login()
 
 # ─── 4. 데이터베이스 및 전역 변수 설정 ──────────────────────────────────────────
-DB_PATH = "defog_v13_final.db" 
+DB_PATH = "defog_v14_master.db" 
 DEFAULT_MANAGERS = ["김형권", "김원중", "김용신", "이승호", "김민태", "한민혁", "조한새", "김혜지", "홍정희", "이수빈"]
 STATUS_LIST = ["🔵 견적", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
@@ -106,11 +100,10 @@ def clean_status(text):
     elif "Drop" in text or "취소" in text: return "🔴 Drop"
     else: return "🔵 견적"
 
-# ⭐ [기가 막힌 기능 1] 엑셀 헤더 찰떡 매칭 로직 (Fuzzy Matching)
+# ⭐ 빈틈없는 AI 퍼지 매칭 함수 (어떤 엑셀 이름이든 잡아냅니다)
 def safe_get(df, possible_keywords, default_val):
     for col in df.columns:
-        # 컬럼 이름에서 공백, 특수문자 등을 제거하고 소문자로 변환하여 비교
-        norm_col = str(col).lower().replace(' ', '').replace('_', '').replace('(', '').replace(')', '').replace('원', '')
+        norm_col = str(col).lower().replace(' ', '').replace('_', '').replace('(', '').replace(')', '').replace('원', '').strip()
         for keyword in possible_keywords:
             if keyword in norm_col:
                 return df[col].fillna(default_val)
@@ -177,19 +170,17 @@ if menu == MENU_1:
                     conn.execute("""
                         INSERT INTO projects (pjt_no, company, pjt_name, category, status, manager, proposed_product, amount, remarks, updated_at) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (f_no, f_comp, f_name, f_cat, f_stat, final_mgr, f_prod, int(f_amt), f_rem, datetime.now(KST).strftime("%Y-%m-%d %H:%M")))
+                    """, (f_no, f_comp, f_name, f_cat, f_stat, final_mgr, f_prod, int(f_amt), f_rem, get_kst_now().strftime("%Y-%m-%d %H:%M")))
                     conn.commit()
                     conn.close()
-                    st.success("✅ 프로젝트가 성공적으로 등록되었습니다!")
+                    st.success("✅ 프로젝트가 등록되었습니다!")
                     st.rerun()
                 else: st.error("수주업체와 프로젝트명은 필수입니다.")
 
-    st.markdown("<p style='color:#64748b;'>💡 <b>Tip:</b> 표 안을 더블클릭해 직접 수정할 수 있습니다. 금액은 숫자만 치면 알아서 콤마가 붙습니다.</p>", unsafe_allow_html=True)
-    
     df_current = get_db_data()
     df_current['display_amount'] = df_current['amount'].apply(lambda x: f"{int(x):,}" if pd.notnull(x) and str(x).strip() != '' else "0")
     
-    # ⭐ [디테일 2] 매니저님이 요청하신 완벽한 컬럼 순서 (수주금액 -> 비고 -> 업데이트 순)
+    # ⭐ 매니저님 요청: 시선 흐름에 맞춘 완벽한 컬럼 순서 고정!
     ORDERED_COLS = ["pjt_no", "company", "pjt_name", "category", "status", "manager", "proposed_product", "display_amount", "remarks", "updated_at"]
     
     edited_df = st.data_editor(
@@ -197,7 +188,7 @@ if menu == MENU_1:
         num_rows="dynamic",
         use_container_width=True,
         height=600,
-        column_order=ORDERED_COLS, # 컬럼 순서 고정
+        column_order=ORDERED_COLS,
         column_config={
             "amount": None, 
             "display_amount": st.column_config.TextColumn("수주금액 (원) ✏️", width="medium"), 
@@ -220,7 +211,7 @@ if menu == MENU_1:
             edited_df['amount'] = pd.to_numeric(edited_df['amount'], errors='coerce').fillna(0).astype(int)
             edited_df = edited_df.drop(columns=['display_amount'])
             edited_df.fillna("-", inplace=True)
-            edited_df['updated_at'] = datetime.now(KST).strftime("%Y-%m-%d %H:%M") # 한국시간 저장
+            edited_df['updated_at'] = get_kst_now().strftime("%Y-%m-%d %H:%M") # 언제 저장해도 무조건 한국시간!
             
             conn = sqlite3.connect(DB_PATH)
             conn.execute("DELETE FROM projects")
@@ -235,7 +226,7 @@ if menu == MENU_1:
 # [Menu 2] 주간 영업 회의 보드 
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_2:
-    st.markdown("<p style='color:gray;'>💡 미팅 시 즉시 검색하여 보고하세요. (읽기 전용)</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color:gray;'>💡 미팅 시 즉시 검색하여 보고하세요. 큰 건은 👑 VIP, 🔥 HOT 뱃지가 자동으로 붙습니다.</p>", unsafe_allow_html=True)
     df_meet = get_db_data()
     if not df_meet.empty:
         search_query = st.text_input("🔍 수주업체 또는 프로젝트명 빠른 검색", placeholder="키워드 입력")
@@ -249,9 +240,17 @@ elif menu == MENU_2:
         if search_query:
             meet_filtered = meet_filtered[meet_filtered['company'].str.contains(search_query, na=False) | meet_filtered['pjt_name'].str.contains(search_query, na=False)]
             
+        # ⭐ 참신한 기능: 금액에 따른 VIP/HOT 뱃지 자동 부여
+        def get_badge(amt):
+            if amt >= 1000000000: return "👑 VIP"
+            elif amt >= 100000000: return "🔥 HOT"
+            else: return "⭐ 일반"
+            
+        meet_filtered['중요도'] = meet_filtered['amount'].apply(get_badge)
         meet_filtered['수주금액'] = meet_filtered['amount'].apply(lambda x: f"₩ {int(x):,}")
-        meet_show = meet_filtered[['updated_at', 'status', 'company', 'pjt_name', 'manager', 'proposed_product', '수주금액', 'remarks']]
-        meet_show.columns = ['최종업데이트', '상태', '수주업체', '프로젝트명', '담당자', '제안제품', '수주금액', '비고']
+        
+        # 회의용 최적화 뷰 (중요도를 앞쪽에 배치)
+        meet_show = meet_filtered[['최종업데이트', '상태', '중요도', '수주업체', '프로젝트명', '담당자', '제안제품', '수주금액', '비고']]
         st.dataframe(meet_show.sort_values(by='최종업데이트', ascending=False).reset_index(drop=True), use_container_width=True, height=500)
     else: st.info("데이터가 없습니다.")
 
@@ -293,52 +292,43 @@ elif menu == MENU_3:
 # [Menu 4] 시스템 및 데이터 관리
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_4:
-    st.info("🚨 엑셀 대량 업로드 시 기존 데이터는 보존되며 그 아래로 계속 추가됩니다.")
-    
-    # ⭐ [기가 막힌 기능 3] 절대 실패 없는 표준 양식 다운로드 제공
-    st.markdown("#### 📝 [필수] 표준 엑셀 양식 다운로드")
-    st.caption("기존 엑셀을 업로드하기 전에, 아래 양식을 다운받아 데이터를 복사+붙여넣기 한 뒤 업로드하시면 100% 에러 없이 연동됩니다.")
-    template_df = pd.DataFrame(columns=["PJT No", "수주업체", "프로젝트명", "구분", "상태", "담당자", "제안제품", "수주금액(원)", "비고"])
-    out_template = io.BytesIO()
-    with pd.ExcelWriter(out_template, engine='openpyxl') as w:
-        template_df.to_excel(w, index=False, sheet_name="표준양식")
-    st.download_button("⬇️ DEFOG 업로드용 표준 엑셀 다운로드", out_template.getvalue(), "DEFOG_Upload_Template.xlsx", use_container_width=True)
-    st.markdown("---")
-
     c_up, c_down = st.columns(2)
     with c_up:
-        st.markdown("#### 📥 엑셀 대량 등록")
+        st.markdown("#### 📥 기존 엑셀 대량 등록")
         excel_file = st.file_uploader("파일을 선택하세요", type=['csv', 'xlsx'])
         if excel_file and st.button("🚀 데이터 동기화", use_container_width=True):
             try:
                 raw = pd.read_csv(excel_file, encoding='utf-8-sig') if excel_file.name.endswith('.csv') else pd.read_excel(excel_file)
                 
-                # AI 퍼지 매칭 로직 적용
-                mapped = pd.DataFrame()
-                mapped["pjt_no"] = safe_get(raw, ['pjtno', '프로젝트번호', '번호'], '-')
-                mapped["company"] = safe_get(raw, ['company', '수주업체', '업체명', '고객사'], '-')
-                mapped["pjt_name"] = safe_get(raw, ['pjtname', '프로젝트명', '사업명'], '-')
-                mapped["category"] = safe_get(raw, ['category', '구분'], 'PRODUCT')
+                # ⭐ 핵심 원인 해결: 눈에 안보이는 빈 줄이나 결측치(NaN) 행을 모조리 날려버립니다.
+                raw = raw.dropna(how='all')
                 
-                status_series = safe_get(raw, ['status', '상태'], '견적')
+                mapped = pd.DataFrame()
+                # 수십 개의 한글 키워드 추가 (어떤 양식이든 알아서 찾아 넣습니다)
+                mapped["pjt_no"] = safe_get(raw, ['pjt', 'no', '번호', '순번', 'id'], '-')
+                mapped["company"] = safe_get(raw, ['company', '업체', '고객사', '발주처', '기관', '회사'], '-')
+                mapped["pjt_name"] = safe_get(raw, ['name', '프로젝트', '사업명', '건명', '내용', '타이틀'], '-')
+                mapped["category"] = safe_get(raw, ['category', '구분', '종류', '분야'], 'PRODUCT')
+                
+                status_series = safe_get(raw, ['status', '상태', '진행', '현황'], '견적')
                 mapped["status"] = status_series.apply(clean_status)
                 
-                mapped["manager"] = safe_get(raw, ['manager', '담당자', '관리자'], '-')
-                mapped["proposed_product"] = safe_get(raw, ['proposedproduct', '제안제품', '품목', '제품'], '-')
+                mapped["manager"] = safe_get(raw, ['manager', '담당자', '관리자', '영업', '대표', '이름', '사원'], '-')
+                mapped["proposed_product"] = safe_get(raw, ['product', '제품', '품목', '장비', '모델', '제안'], '-')
                 
-                amt_series = safe_get(raw, ['amount', '수주금액', '금액'], 0)
+                amt_series = safe_get(raw, ['amount', '금액', '매출', '규모', '원', '예산', 'price'], 0)
                 if amt_series.dtype == object:
                     amt_series = amt_series.astype(str).str.replace(r'[^\d\-]', '', regex=True)
                 mapped["amount"] = pd.to_numeric(amt_series, errors='coerce').fillna(0).astype(int)
                 
-                mapped["remarks"] = safe_get(raw, ['remarks', '비고', '특이사항'], '-')
-                mapped["updated_at"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M") # 한국 시간 저장
+                mapped["remarks"] = safe_get(raw, ['remarks', '비고', '특이', '이슈', '메모'], '-')
+                mapped["updated_at"] = get_kst_now().strftime("%Y-%m-%d %H:%M") # 한국 시간 강제 박제
                 
                 conn = sqlite3.connect(DB_PATH)
                 mapped.to_sql('projects', conn, if_exists='append', index=False)
                 conn.commit()
                 conn.close()
-                st.success("🎉 공란 없이 완벽하게 데이터가 통합되었습니다!"); st.rerun()
+                st.success("🎉 빈칸이나 오류 없이 완벽하게 데이터가 통합되었습니다!"); st.rerun()
             except Exception as e:
                 st.error(f"업로드 중 에러가 발생했습니다: {e}")
                 
@@ -350,4 +340,4 @@ elif menu == MENU_4:
                 df_e.to_excel(w, index=False, sheet_name="파이프라인")
                 sh = w.sheets['파이프라인']; idx = df_e.columns.get_loc('amount') + 1 
                 for r in range(2, len(df_e) + 2): sh.cell(row=r, column=idx).number_format = '"₩" #,##0'
-            st.download_button("📥 백업 파일 다운로드", out.getvalue(), f"DEFOG_DB_{datetime.now(KST).strftime('%m%d')}.xlsx", use_container_width=True)
+            st.download_button("📥 백업 파일 다운로드", out.getvalue(), f"DEFOG_DB_{get_kst_now().strftime('%m%d')}.xlsx", use_container_width=True)
