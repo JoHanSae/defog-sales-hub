@@ -6,9 +6,9 @@ from datetime import datetime
 import io
 
 # ─── 1. 페이지 설정 및 보안 레이아웃 ──────────────────────────────────────────
-st.set_page_config(page_title="DEFOG 영업 파이프라인 관리", page_icon="🔒", layout="wide")
+st.set_page_config(page_title="DEFOG PROJECT MANAGEMENT", page_icon="🚀", layout="wide")
 
-# ─── 2. 팀원 계정 설정 (필요시 여기서 수정하세요) ────────────────────────────────
+# ─── 2. 팀원 계정 설정 ─────────────────────────────────────────────────────────
 USERS = {
     "manager": ("조한세 매니저", "defog!manager"),
     "leader":  ("영업팀장", "defog!leader"),
@@ -23,7 +23,7 @@ if 'user_name' not in st.session_state:
 
 # ─── 3. 로그인 화면 구현 ────────────────────────────────────────────────────────
 def login_screen():
-    st.markdown("<div style='text-align: center; padding-top: 50px;'><h1>🚀 DEFOG 통합 관리 허브</h1><p>팀원 전용 시스템입니다. 로그인이 필요합니다.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; padding-top: 50px;'><h1>🚀 DEFOG PROJECT MANAGEMENT</h1><p>팀원 전용 AI 데이터센터 파이프라인 관리 시스템입니다.</p></div>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
@@ -73,7 +73,7 @@ else:
     # 상단 헤더
     header_col1, header_col2 = st.columns([8, 2])
     with header_col1:
-        st.markdown(f"<h2 style='color: #2563eb;'>🚀 DEFOG 통합 파이프라인 ({st.session_state['user_name']}님)</h2>", unsafe_allow_html=True)
+        st.markdown(f"<h2 style='color: #2563eb;'>🚀 DEFOG PROJECT MANAGEMENT ({st.session_state['user_name']} 접속중)</h2>", unsafe_allow_html=True)
     with header_col2:
         if st.button("로그아웃", use_container_width=True):
             st.session_state['logged_in'] = False
@@ -95,8 +95,11 @@ else:
             won = df[df['status'] == '완료']
             c1, c2, c3 = st.columns(3)
             c1.metric("진행 중인 프로젝트", f"{len(df[df['status'] != '완료'])} 건")
-            c2.metric("수주 완료 총액", f"₩{int(won['amount'].sum()):,} 원")
-            c3.metric("금년 수주 목표 달성률", "78%", "▲ 5%") # 예시 지표
+            
+            # 수주 완료 총액 콤마(,) 포맷팅 적용
+            c2.metric("수주 완료 총액", f"₩ {int(won['amount'].sum()):,} 원")
+            
+            c3.metric("금년 수주 목표 달성률", "78%", "▲ 5%") 
 
             col_a, col_b = st.columns(2)
             with col_a:
@@ -119,7 +122,13 @@ else:
             column_config={
                 "id": st.column_config.NumberColumn("ID", disabled=True),
                 "status": st.column_config.SelectboxColumn("상태", options=["견적", "진행중", "납품대기중", "완료", "Drop"]),
-                "amount": st.column_config.NumberColumn("수주금액(원)", format="₩ %d")
+                # 엑셀 에디터 수주금액 콤마 포맷 적용
+                "amount": st.column_config.NumberColumn(
+                    "수주금액(원)", 
+                    help="가격을 입력하면 자동으로 원화 포맷이 적용됩니다.",
+                    min_value=0, 
+                    step=10000
+                )
             }
         )
         
