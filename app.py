@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import plotly.express as px
-import plotly.graph_objects as go
+import os
 from datetime import datetime
 import io
 
@@ -20,6 +20,9 @@ st.markdown("""
         border-top: 5px solid #2563eb; transition: transform 0.2s;
     }
     .metric-card:hover { transform: translateY(-2px); }
+    
+    /* 사이드바 디자인 튜닝 */
+    [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e2e8f0; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -35,7 +38,13 @@ if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
 def show_login():
-    st.markdown("<div style='text-align: center; padding: 100px 0;'><h1 style='color:#1e3a8a;'>🚀 DEFOG Hub</h1><p style='color:#64748b;'>사내 통합 파이프라인 관리 시스템</p></div>", unsafe_allow_html=True)
+    # 로그인 화면에도 로고 띄우기 (파일이 있을 경우)
+    if os.path.exists("logo.png"):
+        col_logo1, col_logo2, col_logo3 = st.columns([2, 1, 2])
+        with col_logo2:
+            st.image("logo.png", use_container_width=True)
+            
+    st.markdown("<div style='text-align: center; padding: 30px 0;'><h1 style='color:#1e3a8a;'>🚀 DEFOG Sales Hub</h1><p style='color:#64748b;'>사내 통합 파이프라인 관리 시스템</p></div>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 1, 1])
     with c2:
         with st.form("login"):
@@ -53,7 +62,7 @@ if not st.session_state['logged_in']:
     show_login()
 
 # ─── 3. 데이터베이스 및 전역 변수 설정 ──────────────────────────────────────────
-DB_PATH = "defog_v7_master.db" 
+DB_PATH = "defog_v8_final.db" 
 DEFAULT_MANAGERS = ["김형권", "김원중", "김용신", "이승호", "김민태", "한민혁", "조한새", "김혜지", "홍정희", "이수빈"]
 STATUS_LIST = ["🔵 견적", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
@@ -86,21 +95,38 @@ def clean_status(text):
 
 init_db()
 
-# ─── 4. 메인 화면 헤더 ────────────────────────────────────────────────────────
-c_h1, c_h2 = st.columns([9, 1])
-with c_h1:
-    st.markdown(f"<h2 style='color:#1e3a8a; font-weight:800;'>🚀 DEFOG 영업 파이프라인 허브 <span style='font-size:16px; color:#64748b;'>({st.session_state['user_name']} 접속중)</span></h2>", unsafe_allow_html=True)
-with c_h2:
-    if st.button("로그아웃"):
+# ─── 4. 프로페셔널 사이드바 네비게이션 ────────────────────────────────────────
+with st.sidebar:
+    # 🏢 1. 회사 로고 삽입 구역
+    if os.path.exists("logo.png"):
+        st.image("logo.png", use_container_width=True)
+    else:
+        st.markdown("<h2 style='text-align: center; color: #1e3a8a;'>DEFOG</h2>", unsafe_allow_html=True)
+        st.caption("※ 깃허브에 'logo.png' 파일을 올리면 이 자리에 로고가 나타납니다.")
+        
+    st.markdown("---")
+    st.markdown(f"👤 **{st.session_state['user_name']}** 접속중")
+    st.markdown("---")
+    
+    # 📱 2. 사이드바 메뉴 
+    menu = st.radio(
+        "메뉴 이동",
+        ["📝 통합 데이터 편집기", "🗣️ 주간 영업 미팅 보드", "📊 경영진 대시보드", "⚙️ 시스템 설정"],
+        label_visibility="collapsed"
+    )
+    
+    st.markdown("---")
+    if st.button("로그아웃", use_container_width=True):
         st.session_state['logged_in'] = False
         st.rerun()
 
-tabs = st.tabs(["📝 통합 데이터 편집기", "🗣️ 주간 영업 미팅 보드", "📊 경영진 대시보드", "⚙️ 시스템 설정"])
+# 메인 헤더
+st.markdown(f"<h2 style='color:#1e3a8a; font-weight:800; margin-bottom: 30px;'>{menu}</h2>", unsafe_allow_html=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Tab 1] 통합 데이터 편집기
+# [Menu 1] 통합 데이터 편집기
 # ═════════════════════════════════════════════════════════════════════════════
-with tabs[0]:
+if menu == "📝 통합 데이터 편집기":
     with st.expander("🚀 [클릭] 스마트 신규 프로젝트 등록", expanded=False):
         with st.form("quick_add_form"):
             f1, f2, f3, f4 = st.columns(4)
@@ -113,7 +139,7 @@ with tabs[0]:
             with f5: f_cat = st.selectbox("구분", ["PRODUCT", "SOLUTION", "기타"])
             with f6: f_stat = st.selectbox("상태", STATUS_LIST)
             with f7: f_mgr_sel = st.selectbox("담당자 선택", DEFAULT_MANAGERS + ["== 직접 입력 =="])
-            with f8: f_mgr_cust = st.text_input("담당자 직접 입력 (위에서 선택 시)")
+            with f8: f_mgr_cust = st.text_input("담당자 직접 입력 (선택 시)")
                 
             f_prod = st.text_input("제안제품 (예: INROW / RDC)")
             
@@ -129,12 +155,11 @@ with tabs[0]:
                     """, (f_no, f_comp, f_name, f_cat, f_stat, final_mgr, f_prod, int(f_amt), datetime.now().strftime("%Y-%m-%d %H:%M")))
                     conn.commit()
                     conn.close()
-                    st.success("✅ 신규 프로젝트가 성공적으로 등록되었습니다!")
+                    st.success("✅ 신규 프로젝트가 등록되었습니다!")
                     st.rerun()
-                else:
-                    st.error("수주업체와 프로젝트명은 필수입니다.")
+                else: st.error("수주업체와 프로젝트명은 필수입니다.")
 
-    st.markdown("<p style='color:#64748b; margin-top:10px;'>💡 <b>Tip:</b> 표 안을 더블클릭해 직접 수정할 수 있습니다. 금액은 숫자만 치면 알아서 콤마가 붙습니다.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#64748b;'>💡 <b>Tip:</b> 표 안을 더블클릭해 직접 수정할 수 있습니다. 금액은 숫자만 치면 알아서 콤마가 붙습니다.</p>", unsafe_allow_html=True)
     
     df_current = get_db_data()
     df_current['display_amount'] = df_current['amount'].apply(lambda x: f"{int(x):,}" if pd.notnull(x) and str(x).strip() != '' else "0")
@@ -172,42 +197,48 @@ with tabs[0]:
             edited_df.to_sql('projects', conn, if_exists='append', index=False)
             conn.commit()
             conn.close()
-            st.success("✅ 저장 완료! 콤마 정렬 및 모든 데이터가 완벽하게 업데이트되었습니다.")
+            st.success("✅ 저장 완료! 데이터가 완벽하게 업데이트되었습니다.")
             st.rerun()
-        except Exception as e:
-            st.error(f"저장 중 오류: {e}")
+        except Exception as e: st.error(f"저장 중 오류: {e}")
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Tab 2] 🗣️ 주간 영업 미팅 보드 
+# [Menu 2] 🗣️ 주간 영업 미팅 보드 
 # ═════════════════════════════════════════════════════════════════════════════
-with tabs[1]:
-    st.markdown("### 🗣️ 주간 영업 회의용 뷰어")
+elif menu == "🗣️ 주간 영업 미팅 보드":
+    st.markdown("<p style='color:gray;'>💡 데이터 손상 걱정 없는 <b>읽기 전용 모드</b>입니다. 미팅 시 즉시 검색하여 보고하세요.</p>", unsafe_allow_html=True)
     
     df_meet = get_db_data()
     if not df_meet.empty:
+        # 🔍 새 기능: 텍스트 즉시 검색 기능
+        search_query = st.text_input("🔍 수주업체 또는 프로젝트명 빠른 검색", placeholder="예: 네이버, 서강대 등 키워드 입력")
+        
         col_f1, col_f2 = st.columns([7, 3])
-        with col_f1:
-            sel_status = st.multiselect("🔍 보고할 상태(Status) 필터링", STATUS_LIST, default=STATUS_LIST)
+        with col_f1: sel_status = st.multiselect("📌 보고할 상태(Status) 필터링", STATUS_LIST, default=STATUS_LIST)
         with col_f2:
             unique_mgr = df_meet['manager'].unique().tolist()
             sel_mgr = st.multiselect("👨‍💼 담당자 필터링", unique_mgr, default=unique_mgr)
             
         meet_filtered = df_meet[df_meet['status'].isin(sel_status) & df_meet['manager'].isin(sel_mgr)]
+        
+        # 검색어 필터 적용
+        if search_query:
+            meet_filtered = meet_filtered[meet_filtered['company'].str.contains(search_query, na=False) | meet_filtered['pjt_name'].str.contains(search_query, na=False)]
+            
         meet_filtered['수주금액'] = meet_filtered['amount'].apply(lambda x: f"₩ {int(x):,}")
         meet_show = meet_filtered[['updated_at', 'status', 'company', 'pjt_name', 'manager', '수주금액', 'proposed_product']]
-        meet_show.columns = ['날짜', '상태', '수주업체', '프로젝트명', '담당자', '수주금액', '제안제품']
+        meet_show.columns = ['최종업데이트', '상태', '수주업체', '프로젝트명', '담당자', '수주금액', '제안제품']
         
-        meet_show = meet_show.sort_values(by='날짜', ascending=False).reset_index(drop=True)
+        meet_show = meet_show.sort_values(by='최종업데이트', ascending=False).reset_index(drop=True)
         
         st.dataframe(meet_show, use_container_width=True, height=500)
-        st.markdown(f"**총 조회 건수:** {len(meet_show)}건 | **필터링된 총액:** ₩ {meet_filtered['amount'].sum():,}원")
+        st.markdown(f"**총 조회 건수:** <span style='color:#2563eb; font-weight:bold;'>{len(meet_show)}건</span> | **조회된 총액:** <span style='color:#10b981; font-weight:bold;'>₩ {meet_filtered['amount'].sum():,}원</span>", unsafe_allow_html=True)
     else:
         st.info("데이터가 없습니다.")
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Tab 3] 📊 경영진 대시보드
+# [Menu 3] 📊 경영진 대시보드
 # ═════════════════════════════════════════════════════════════════════════════
-with tabs[2]:
+elif menu == "📊 경영진 대시보드":
     df_dash = get_db_data()
     if df_dash.empty:
         st.info("현재 등록된 데이터가 없습니다.")
@@ -243,9 +274,10 @@ with tabs[2]:
             st.plotly_chart(fig_bar, use_container_width=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Tab 4] ⚙️ 시스템 설정 (⭐ 엑셀 포맷팅 완벽 적용)
+# [Menu 4] ⚙️ 시스템 설정
 # ═════════════════════════════════════════════════════════════════════════════
-with tabs[3]:
+elif menu == "⚙️ 시스템 설정":
+    st.info("🚨 클라우드 서버 특성상 데이터가 초기화될 수 있으므로, **주기적으로 엑셀 백업을 다운로드** 해두시길 권장합니다.")
     c_up, c_down = st.columns(2)
     with c_up:
         st.markdown("#### 📥 엑셀 대량 등록")
@@ -271,21 +303,16 @@ with tabs[3]:
                 conn.close()
                 st.success("완벽하게 통합되었습니다!")
                 st.rerun()
-            except Exception as e:
-                st.error(f"업로드 에러: {e}")
+            except Exception as e: st.error(f"업로드 에러: {e}")
                 
     with c_down:
         st.markdown("#### 📤 엑셀 백업 다운로드")
         if st.button("🔄 최신 엑셀 백업본 생성", use_container_width=True):
             df_export = get_db_data()
             output = io.BytesIO()
-            
-            # openpyxl을 통해 엑셀 셀 자체에 회계 서식을 직접 구워 넣습니다.
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_export.to_excel(writer, index=False, sheet_name="파이프라인")
                 worksheet = writer.sheets['파이프라인']
-                
-                # 'amount' 열(보통 8번째 H열)을 찾아 숫자(₩ 1,234) 서식을 강제로 적용합니다. 소수점도 없앱니다.
                 amount_col_idx = df_export.columns.get_loc('amount') + 1 
                 for row in range(2, len(df_export) + 2):
                     cell = worksheet.cell(row=row, column=amount_col_idx)
