@@ -293,52 +293,184 @@ elif menu == MENU_3:
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_4:
     c_up, c_down = st.columns(2)
+    # ═══════════════════════════════════════════════════════════════════
+# 아래 코드를 기존 app.py의 [Menu 4] 시스템 및 데이터 관리 부분에서
+# "📥 기존 엑셀 대량 등록" 섹션 전체를 교체하세요
+# ═══════════════════════════════════════════════════════════════════
+
     with c_up:
         st.markdown("#### 📥 기존 엑셀 대량 등록")
         
-        # ⭐ 핵심 패치: 엑셀에서 표 제목이 있는 진짜 행(Row) 번호를 입력받습니다.
-        header_row = st.number_input("📌 엑셀 파일에서 '수주업체', '금액' 등 제목이 있는 행(Row) 번호를 입력하세요.", min_value=1, value=1)
-        st.caption("예: 1~2행에 '파이프라인 현황' 같은 큰 제목이 있고, 3행부터 진짜 표 제목이 시작된다면 '3'을 입력하세요.")
+        # 시트 선택 옵션
+        sheet_option = st.selectbox(
+            "불러올 시트 선택",
+            ["2026 프로젝트 (메인)", "2026 IPDU", "신규PJT", "전체 시트 합치기"]
+        )
         
-        excel_file = st.file_uploader("파일을 선택하세요", type=['csv', 'xlsx'])
-        if excel_file and st.button("🚀 데이터 동기화", use_container_width=True):
+        excel_file = st.file_uploader("파일을 선택하세요 (.xlsx)", type=['xlsx', 'csv'])
+        
+        if excel_file:
             try:
-                # 입력받은 행(Row) 이전의 쓸데없는 제목이나 공백은 모조리 무시하고 진짜 데이터만 읽어옵니다.
-                skip_rows = header_row - 1
+                # ── 미리보기 ──────────────────────────────────────────
+                st.markdown("##### 📋 데이터 미리보기")
+                
+                def read_defog_excel(file, sheet_name):
+                    """디포그 엑셀 전용 리더 - 상단 4줄 헤더/범례 행 자동 스킵"""
+                    try:
+                        # 디포그 엑셀은 상단 4행이 제목/범례/토글 행 → header=4로 읽기
+                        df = pd.read_excel(file, sheet_name=sheet_name, header=4)
+                        # 완전히 빈 행 제거
+                        df = df.dropna(how='all')
+                        # '정렬' 컬럼이 숫자가 아닌 행 제거 (합계행 등)
+                        if '정렬' in df.columns:
+                            df = df[pd.to_numeric(df['정렬'], errors='coerce').notna()]
+                        return df
+                    except Exception:
+                        # 일반 엑셀이면 그냥 읽기
+                        df = pd.read_excel(file, sheet_name=sheet_name)
+                        df = df.dropna(how='all')
+                        return df
+
+                def map_to_db(df, source_sheet="메인"):
+                    """어떤 시트든 DB 컬럼으로 통일 매핑"""
+                    mapped = pd.DataFrame()
+
+                    # ── 컬럼명 정규화 함수 ──
+                    def find_col(df, keywords):
+                        for col in df.columns:
+                            norm = str(col).replace(' ', '').lower()
+                            for kw in keywords:
+                                if kw in norm:
+                                    return col
+                        return None
+
+                    # PJT No
+                    col = find_col(df, ['프로젝트번호', 'pjtno', 'pjt_no', '번호'])
+                    mapped['pjt_no'] = df[col].fillna('-') if col else '-'
+
+                    # 수주업체
+                    col = find_col(df, ['수주업체', '업체명', '업체', '고객사', '발주처', 'company'])
+                    mapped['company'] = df[col].fillna('-') if col else '-'
+
+                    # 프로젝트명
+                    col = find_col(df, ['프로젝트명', '사업명', '프로젝트명', 'pjt명', '건명'])
+                    if not col:
+                        col = find_col(df, ['명', 'name'])
+                    mapped['pjt_name'] = df[col].fillna('-') if col else '-'
+
+                    # 구분/카테고리
+                    col = find_col(df, ['구분', 'category', '분류'])
+                    mapped['category'] = df[col].fillna('PRODUCT') if col else 'PRODUCT'
+
+                    # 상태
+                    col = find_col(df, ['상태', 'status'])
+                    if col:
+                        mapped['status'] = df[col].apply(clean_status)
+                    else:
+                        mapped['status'] = '🔵 견적'
+
+                    # 담당자
+                    col = find_col(df, ['관리자', '담당자', 'manager'])
+                    mapped['manager'] = df[col].fillna('-') if col else '-'
+
+                    # 제안제품
+                    col = find_col(df, ['제안제품', '제품', '품목', 'product'])
+                    if not col:
+                        col = find_col(df, ['racking', 'cooling', 'power'])
+                    mapped['proposed_product'] = df[col].fillna('-') if col else '-'
+
+                    # 수주금액
+                    col = find_col(df, ['수주금액', '금액', 'amount', 'price'])
+                    if col:
+                        amt = df[col].astype(str).str.replace(r'[^\d\-]', '', regex=True)
+                        mapped['amount'] = pd.to_numeric(amt, errors='coerce').fillna(0).astype(int)
+                    else:
+                        mapped['amount'] = 0
+
+                    # 비고
+                    col = find_col(df, ['비고', '핵심이슈', 'remarks', '특이', '이슈', '메모'])
+                    mapped['remarks'] = df[col].fillna('-') if col else '-'
+
+                    # 업데이트 시간
+                    mapped['updated_at'] = get_kst_now().strftime("%Y-%m-%d %H:%M")
+
+                    # 빈 행 최종 제거
+                    mapped = mapped[mapped['company'].astype(str).str.strip() != '-']
+                    mapped = mapped[mapped['company'].astype(str).str.strip() != '']
+                    mapped = mapped[mapped['pjt_name'].astype(str).str.strip() != '-']
+
+                    return mapped
+
+                # ── 시트별 읽기 ──────────────────────────────────────
                 if excel_file.name.endswith('.csv'):
-                    raw = pd.read_csv(excel_file, encoding='utf-8-sig', skiprows=skip_rows)
+                    raw = pd.read_csv(excel_file, encoding='utf-8-sig')
+                    raw = raw.dropna(how='all')
+                    preview_df = raw
+                    final_mapped = map_to_db(raw)
                 else:
-                    raw = pd.read_excel(excel_file, skiprows=skip_rows)
-                
-                raw = raw.dropna(how='all') # 완전히 빈 줄 삭제
-                
-                mapped = pd.DataFrame()
-                mapped["pjt_no"] = safe_get(raw, ['pjt', 'no', '번호', '순번', 'id'], '-')
-                mapped["company"] = safe_get(raw, ['company', '업체', '고객사', '발주처', '기관', '회사'], '-')
-                mapped["pjt_name"] = safe_get(raw, ['name', '프로젝트', '사업명', '건명', '내용', '타이틀'], '-')
-                mapped["category"] = safe_get(raw, ['category', '구분', '종류', '분야'], 'PRODUCT')
-                
-                status_series = safe_get(raw, ['status', '상태', '진행', '현황'], '견적')
-                mapped["status"] = status_series.apply(clean_status)
-                
-                mapped["manager"] = safe_get(raw, ['manager', '담당자', '관리자', '영업', '대표', '이름', '사원'], '-')
-                mapped["proposed_product"] = safe_get(raw, ['product', '제품', '품목', '장비', '모델', '제안'], '-')
-                
-                amt_series = safe_get(raw, ['amount', '금액', '매출', '규모', '원', '예산', 'price'], 0)
-                if amt_series.dtype == object:
-                    amt_series = amt_series.astype(str).str.replace(r'[^\d\-]', '', regex=True)
-                mapped["amount"] = pd.to_numeric(amt_series, errors='coerce').fillna(0).astype(int)
-                
-                mapped["remarks"] = safe_get(raw, ['remarks', '비고', '특이', '이슈', '메모'], '-')
-                mapped["updated_at"] = get_kst_date() # 날짜만 저장
-                
-                conn = sqlite3.connect(DB_PATH)
-                mapped.to_sql('projects', conn, if_exists='append', index=False)
-                conn.commit()
-                conn.close()
-                st.success("🎉 빈칸 없이 완벽하게 데이터가 통합되었습니다!"); st.rerun()
+                    xl = pd.ExcelFile(excel_file)
+                    available_sheets = xl.sheet_names
+
+                    if sheet_option == "전체 시트 합치기":
+                        all_dfs = []
+                        for sn in available_sheets:
+                            try:
+                                df_s = read_defog_excel(excel_file, sn)
+                                mapped_s = map_to_db(df_s, source_sheet=sn)
+                                if len(mapped_s) > 0:
+                                    all_dfs.append(mapped_s)
+                            except Exception:
+                                pass
+                        final_mapped = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
+                        preview_df = final_mapped
+
+                    else:
+                        sheet_map = {
+                            "2026 프로젝트 (메인)": "2026 프로젝트",
+                            "2026 IPDU":            "2026 IPDU",
+                            "신규PJT":              "신규PJT",
+                        }
+                        target_sheet = sheet_map.get(sheet_option, available_sheets[0])
+                        if target_sheet not in available_sheets:
+                            target_sheet = available_sheets[0]
+
+                        raw = read_defog_excel(excel_file, target_sheet)
+                        final_mapped = map_to_db(raw, source_sheet=target_sheet)
+                        preview_df = final_mapped
+
+                # ── 미리보기 표시 ────────────────────────────────────
+                if len(final_mapped) > 0:
+                    st.success(f"✅ 총 **{len(final_mapped)}건** 인식 완료!")
+                    st.dataframe(
+                        final_mapped[['pjt_no','company','pjt_name','category','status','manager','amount','remarks']].head(20),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                    col_sync1, col_sync2 = st.columns(2)
+                    with col_sync1:
+                        if st.button("🔄 기존 데이터에 추가 (append)", use_container_width=True):
+                            conn = sqlite3.connect(DB_PATH)
+                            final_mapped.to_sql('projects', conn, if_exists='append', index=False)
+                            conn.commit()
+                            conn.close()
+                            st.success(f"🎉 {len(final_mapped)}건 추가 완료!")
+                            st.rerun()
+                    with col_sync2:
+                        if st.button("⚠️ 전체 교체 (기존 삭제 후 덮어쓰기)", use_container_width=True):
+                            conn = sqlite3.connect(DB_PATH)
+                            conn.execute("DELETE FROM projects")
+                            final_mapped.to_sql('projects', conn, if_exists='append', index=False)
+                            conn.commit()
+                            conn.close()
+                            st.success(f"🎉 전체 교체 완료! ({len(final_mapped)}건)")
+                            st.rerun()
+                else:
+                    st.warning("인식된 데이터가 없습니다. 다른 시트를 선택해보세요.")
+
             except Exception as e:
-                st.error(f"업로드 중 에러가 발생했습니다: {e}")
+                st.error(f"파일 처리 오류: {e}")
+                st.info("💡 '전체 시트 합치기'를 선택하거나, 다른 시트를 선택해보세요.")
                 
     with c_down:
         st.markdown("#### 📤 엑셀 전체 백업 다운로드")
