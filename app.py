@@ -22,6 +22,9 @@ st.markdown("""
     .metric-card:hover { transform: translateY(-2px); }
     
     [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e2e8f0; }
+    
+    /* 프로그레스 바 디자인 */
+    .stProgress > div > div > div > div { background-color: #10b981; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -33,9 +36,8 @@ USERS = {
     "manager": ("팀원", "defog!manager")
 }
 
-# ─── 3. F5 새로고침 방어 로직 (티켓 유지) ──────────────────────────────────────
+# ─── 3. F5 새로고침 방어 로직 ──────────────────────────────────────────────────
 if 'logged_in' not in st.session_state:
-    # URL 주소창에서 티켓 확인 (이 티켓이 있어야 F5를 눌러도 안 튕깁니다!)
     ticket = st.query_params.get("ticket", "")
     is_valid_ticket = False
     
@@ -53,8 +55,7 @@ if 'logged_in' not in st.session_state:
 def show_login():
     if os.path.exists("logo.png"):
         col_logo1, col_logo2, col_logo3 = st.columns([2, 1, 2])
-        with col_logo2:
-            st.image("logo.png", use_container_width=True)
+        with col_logo2: st.image("logo.png", use_container_width=True)
             
     st.markdown("<div style='text-align: center; padding: 30px 0;'><h1 style='color:#1e3a8a;'>🚀 DEFOG Sales Hub</h1><p style='color:#64748b;'>사내 통합 파이프라인 관리 시스템</p></div>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 1, 1])
@@ -66,7 +67,6 @@ def show_login():
                 if u_id in USERS and USERS[u_id][1] == u_pw:
                     st.session_state['logged_in'] = True
                     st.session_state['user_name'] = USERS[u_id][0]
-                    # 로그인 성공 시 티켓 발급 및 유지 (F5 버그 해결)
                     st.query_params["ticket"] = f"defog_auth_{u_id}_valid"
                     st.rerun()
                 else: st.error("정보가 일치하지 않습니다.")
@@ -107,14 +107,19 @@ def clean_status(text):
     elif "Drop" in text or "취소" in text: return "🔴 Drop"
     else: return "🔵 견적"
 
+# ⭐ 에러 방지용 안전한 엑셀 데이터 추출 함수
+def safe_get(df, possible_cols, default_val):
+    for col in possible_cols:
+        if col in df.columns:
+            return df[col].fillna(default_val)
+    return pd.Series([default_val] * len(df))
+
 init_db()
 
 # ─── 5. 사이드바 및 네비게이션 메뉴 ──────────────────────────────────────────
 with st.sidebar:
-    if os.path.exists("logo.png"):
-        st.image("logo.png", use_container_width=True)
-    else:
-        st.markdown("<h2 style='text-align: center; color: #1e3a8a;'>DEFOG</h2>", unsafe_allow_html=True)
+    if os.path.exists("logo.png"): st.image("logo.png", use_container_width=True)
+    else: st.markdown("<h2 style='text-align: center; color: #1e3a8a;'>DEFOG</h2>", unsafe_allow_html=True)
         
     st.markdown("---")
     st.markdown(f"👤 **{st.session_state['user_name']}** 접속중")
@@ -133,7 +138,6 @@ with st.sidebar:
         st.query_params.clear() 
         st.rerun()
 
-    # ⭐ 보안 공유용 안전 링크 고정 배치
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.info("🔗 **팀원 초대용 안전 링크**\n\n아래 주소를 복사해서 공유하세요. (주소창 복사 금지)")
     st.code("https://defog-sales-app.streamlit.app/", language="text")
@@ -178,14 +182,20 @@ if menu == MENU_1:
                     st.rerun()
                 else: st.error("수주업체와 프로젝트명은 필수입니다.")
 
+    st.markdown("<p style='color:#64748b;'>💡 <b>Tip:</b> 표 안을 더블클릭해 직접 수정할 수 있습니다. 금액은 숫자만 치면 알아서 콤마가 붙습니다.</p>", unsafe_allow_html=True)
+    
     df_current = get_db_data()
     df_current['display_amount'] = df_current['amount'].apply(lambda x: f"{int(x):,}" if pd.notnull(x) and str(x).strip() != '' else "0")
+    
+    # ⭐ 요청하신 완벽한 컬럼 순서 지정!
+    ORDERED_COLS = ["pjt_no", "company", "pjt_name", "category", "status", "manager", "proposed_product", "display_amount", "remarks", "updated_at"]
     
     edited_df = st.data_editor(
         df_current,
         num_rows="dynamic",
         use_container_width=True,
         height=600,
+        column_order=ORDERED_COLS, # 컬럼 순서 강제 고정
         column_config={
             "amount": None, 
             "display_amount": st.column_config.TextColumn("수주금액 (원) ✏️", width="medium"), 
@@ -196,7 +206,7 @@ if menu == MENU_1:
             "status": st.column_config.SelectboxColumn("상태", options=STATUS_LIST, width="small"),
             "manager": st.column_config.TextColumn("담당자 (자유입력)", width="small"),
             "proposed_product": st.column_config.TextColumn("제안제품", width="medium"),
-            "remarks": st.column_config.TextColumn("비고 (특이사항)", width="large"),
+            "remarks": st.column_config.TextColumn("비고", width="large"),
             "updated_at": st.column_config.TextColumn("최종 업데이트", disabled=True, width="small")
         },
         key="main_editor"
@@ -252,6 +262,16 @@ elif menu == MENU_3:
     else:
         won_amt = df_dash[df_dash['status'] == "🟢 완료"]['amount'].sum()
         active_amt = df_dash[~df_dash['status'].isin(["🟢 완료", "🔴 Drop"])]['amount'].sum()
+        
+        # ⭐ 디테일 혁신: 2026년 팀 목표 달성률 바 추가 (목표치 100억 기준)
+        TARGET_AMOUNT = 10000000000 
+        progress_pct = min(won_amt / TARGET_AMOUNT, 1.0) if TARGET_AMOUNT > 0 else 0
+        
+        st.markdown(f"#### 🎯 2026년 DEFOG 팀 수주 목표 달성률 <span style='font-size:16px; color:#64748b;'>(목표: 100억)</span>", unsafe_allow_html=True)
+        st.progress(progress_pct)
+        st.markdown(f"<p style='text-align:right; font-weight:bold; color:#10b981;'>{progress_pct*100:.1f}% 달성 (₩ {won_amt:,}원)</p>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+
         m1, m2, m3, m4 = st.columns(4)
         m1.markdown(f"<div class='metric-card'><small>현재 진행/견적 금액</small><h3>₩ {active_amt:,}</h3></div>", unsafe_allow_html=True)
         m2.markdown(f"<div class='metric-card' style='border-top-color:#10b981;'><small>올해 수주 확정액</small><h3 style='color:#10b981;'>₩ {won_amt:,}</h3></div>", unsafe_allow_html=True)
@@ -277,24 +297,37 @@ elif menu == MENU_4:
     with c_up:
         excel_file = st.file_uploader("엑셀 파일 선택", type=['csv', 'xlsx'])
         if excel_file and st.button("🚀 데이터 동기화"):
-            raw = pd.read_csv(excel_file, encoding='utf-8-sig') if excel_file.name.endswith('.csv') else pd.read_excel(excel_file)
-            mapped = pd.DataFrame({
-                "pjt_no": raw.get('프로젝트 번호', '-'),
-                "company": raw.get('프로젝트 수주 업체', '-'),
-                "pjt_name": raw.get('프로젝트 명', '-'),
-                "category": raw.get('구분', 'PRODUCT'),
-                "status": raw.get('상태', '견적').apply(clean_status),
-                "manager": raw.get('관리자', '-'),
-                "proposed_product": raw.get('제안 제품', '-'),
-                "amount": pd.to_numeric(raw.get('수주 금액', 0), errors='coerce').fillna(0).astype(int),
-                "remarks": raw.get('비고', '-'),
-                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")
-            })
-            conn = sqlite3.connect(DB_PATH)
-            mapped.to_sql('projects', conn, if_exists='append', index=False)
-            conn.commit()
-            conn.close()
-            st.success("데이터가 통합되었습니다!"); st.rerun()
+            try:
+                raw = pd.read_csv(excel_file, encoding='utf-8-sig') if excel_file.name.endswith('.csv') else pd.read_excel(excel_file)
+                
+                # ⭐ 방탄(Bulletproof) 엑셀 매핑 로직: 에러 원천 차단
+                mapped = pd.DataFrame()
+                mapped["pjt_no"] = safe_get(raw, ['프로젝트 번호', 'pjt_no', 'PJT No'], '-')
+                mapped["company"] = safe_get(raw, ['프로젝트 수주 업체', '업체명', '수주업체'], '-')
+                mapped["pjt_name"] = safe_get(raw, ['프로젝트 명', '사업명', '프로젝트명'], '-')
+                mapped["category"] = safe_get(raw, ['구분', 'category'], 'PRODUCT')
+                
+                status_series = safe_get(raw, ['상태', 'status'], '견적')
+                mapped["status"] = status_series.apply(clean_status)
+                
+                mapped["manager"] = safe_get(raw, ['관리자', '담당자', 'manager'], '-')
+                mapped["proposed_product"] = safe_get(raw, ['제안 제품', '제안제품', '품목'], '-')
+                
+                amt_series = safe_get(raw, ['수주 금액', '수주금액', '금액', 'amount'], 0)
+                if amt_series.dtype == object:
+                    amt_series = amt_series.astype(str).str.replace(r'[^\d\-]', '', regex=True)
+                mapped["amount"] = pd.to_numeric(amt_series, errors='coerce').fillna(0).astype(int)
+                
+                mapped["remarks"] = safe_get(raw, ['비고', '특이사항', '핵심 이슈'], '-')
+                mapped["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                
+                conn = sqlite3.connect(DB_PATH)
+                mapped.to_sql('projects', conn, if_exists='append', index=False)
+                conn.commit()
+                conn.close()
+                st.success("🎉 에러 없이 완벽하게 데이터가 통합되었습니다!"); st.rerun()
+            except Exception as e:
+                st.error(f"업로드 중 알 수 없는 에러가 발생했습니다: {e}")
                 
     with c_down:
         if st.button("🔄 최신 엑셀 백업본 생성"):
