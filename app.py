@@ -97,8 +97,8 @@ init_db()
 # ─── 4. 사이드바 및 네비게이션 설정 ──────────────────────────────────────────
 MENU_1 = "📝 프로젝트 파이프라인 관리"
 MENU_2 = "🤝 주간 영업 회의 보드"
-MENU_3 = "📊 경영진 성과 대시보드"
-MENU_4 = "⚙️ 시스템 및 데이터 관리"
+MENU_3 = "📊 성과 대시보드"
+MENU_4 = "⚙️ DB 불러오기 / 내보내기"
 
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", use_container_width=True)
