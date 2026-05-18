@@ -56,8 +56,8 @@ if not st.session_state['logged_in']:
                 else: st.error("정보가 일치하지 않습니다.")
     st.stop()
 
-# ─── 3. 데이터베이스 초기화 (v27 무결점 구조 - manager 컬럼 제거) ──────────────
-DB_PATH = "defog_v27_final.db"
+# ─── 3. 데이터베이스 초기화 (v28 구조) ─────────────────────────────────
+DB_PATH = "defog_v28_final.db"
 STATUS_LIST = ["🔵 견적", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
 def init_db():
@@ -141,7 +141,7 @@ if menu == MENU_1:
                     conn = sqlite3.connect(DB_PATH)
                     conn.execute("""
                         INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (f_no, f_comp, f_name, f_cat, f_pf, f_stat, f_clt, f_date.strftime("%Y-%m-%d"), amphitheater_amt:=int(f_amt), f_rem, get_kst_date()))
+                    """, (f_no, f_comp, f_name, f_cat, f_pf, f_stat, f_clt, f_date.strftime("%Y-%m-%d"), int(f_amt), f_rem, get_kst_date()))
                     conn.commit(); conn.close()
                     st.success("✅ 프로젝트가 등록되었습니다!")
                     st.rerun()
@@ -149,7 +149,7 @@ if menu == MENU_1:
 
     df_current = get_db_data()
     
-    # 매니저님 요청 순서 (우리측 담당 제외): PJT No -> 수주업체 -> 프로젝트명 -> 제품군 -> 구분 -> 상태 -> 상대 담당 -> 견적일 -> 수주금액 -> 비고 -> 최종 업데이트
+    # 표준 컬럼 순서 고정
     ORDERED_COLS = ["pjt_no", "company", "pjt_name", "product_family", "category", "status", "client_manager", "quote_date", "amount", "remarks", "updated_at"]
     
     edited_df = st.data_editor(
@@ -163,7 +163,8 @@ if menu == MENU_1:
             "product_family": "제품군", "category": "구분",
             "status": st.column_config.SelectboxColumn("상태", options=STATUS_LIST),
             "client_manager": "상대 담당", "quote_date": "견적일",
-            "amount": st.column_config.NumberColumn("수주금액 (원)", format="%d"),
+            # ⭐ format="%,d" 지정을 통해 편집창 내에서도 실시간 천 단위 콤마가 구현됩니다.
+            "amount": st.column_config.NumberColumn("수주금액 (원)", format="%,d"),
             "remarks": "비고", "updated_at": st.column_config.TextColumn("최종 업데이트", disabled=True)
         },
         key="main_editor"
@@ -180,7 +181,7 @@ if menu == MENU_1:
             conn.execute("DELETE FROM projects")
             final_df.to_sql('projects', conn, if_exists='append', index=False)
             conn.commit(); conn.close()
-            st.success("✅ 변경사항 및 삭제가 완벽히 저장되었습니다.")
+            st.success("✅ 모든 변경사항 및 삭제가 완벽히 저장되었습니다.")
             st.rerun()
         except Exception as e: st.error(f"저장 중 오류: {e}")
 
@@ -210,9 +211,9 @@ elif menu == MENU_2:
         st.dataframe(meet_show.sort_values(by='최종업데이트', ascending=False).reset_index(drop=True), use_container_width=True, height=500)
     else: st.info("데이터가 존재하지 않습니다.")
 
-# ───══════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════
 # [Menu 3] 경영진 성과 대시보드
-# ───══════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_3:
     df_dash = get_db_data()
     if df_dash.empty: st.info("데이터가 존재하지 않습니다.")
@@ -265,7 +266,6 @@ elif menu == MENU_4:
             mapped["remarks"] = safe_get(raw, ['비고', '특이'], '-')
             mapped["updated_at"] = get_kst_date()
             
-            # DB 컬럼 구조 동기화 (manager 제거 반영)
             db_cols = ["pjt_no", "company", "pjt_name", "category", "product_family", "status", "client_manager", "quote_date", "amount", "remarks", "updated_at"]
             mapped = mapped[db_cols]
             
