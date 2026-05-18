@@ -56,9 +56,8 @@ if not st.session_state['logged_in']:
                 else: st.error("정보가 일치하지 않습니다.")
     st.stop()
 
-# ─── 3. 데이터베이스 초기화 (v26 무결점 구조) ─────────────────────────────────
-DB_PATH = "defog_v26_final.db"
-DEFAULT_MANAGERS = ["김형권", "김원중", "김용신", "이승호", "김민태", "한민혁", "조한새", "김혜지", "홍정희", "이수빈"]
+# ─── 3. 데이터베이스 초기화 (v27 무결점 구조 - manager 컬럼 제거) ──────────────
+DB_PATH = "defog_v27_final.db"
 STATUS_LIST = ["🔵 견적", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
 def init_db():
@@ -66,7 +65,7 @@ def init_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS projects (
             pjt_no TEXT, company TEXT, pjt_name TEXT, category TEXT, product_family TEXT,
-            status TEXT, manager TEXT, client_manager TEXT, quote_date TEXT,
+            status TEXT, client_manager TEXT, quote_date TEXT,
             amount INTEGER, remarks TEXT, updated_at TEXT
         )
     """)
@@ -95,7 +94,7 @@ def clean_status(text):
 
 init_db()
 
-# ─── 4. 사이드바 및 네비게이션 명칭 완벽 통일 ───────────────────────────────
+# ─── 4. 사이드바 및 네비게이션 설정 ──────────────────────────────────────────
 MENU_1 = "📝 프로젝트 파이프라인 관리"
 MENU_2 = "🤝 주간 영업 회의 보드"
 MENU_3 = "📊 경영진 성과 대시보드"
@@ -116,7 +115,7 @@ with st.sidebar:
 st.markdown(f"<h2 style='color:#1e3a8a; font-weight:800; margin-bottom: 30px;'>{menu}</h2>", unsafe_allow_html=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 1] 프로젝트 파이프라인 관리 (수정 / 삭제 / 추가 전체 구현)
+# [Menu 1] 프로젝트 파이프라인 관리
 # ═════════════════════════════════════════════════════════════════════════════
 if menu == MENU_1:
     with st.expander("🚀 스마트 신규 프로젝트 직접 등록", expanded=False):
@@ -127,23 +126,22 @@ if menu == MENU_1:
             with f3: f_name = st.text_input("프로젝트명 *")
             with f4: f_amt = st.number_input("수주금액 (원)", min_value=0, step=1000000)
             
-            f5, f6, f7, f8 = st.columns(4)
+            f5, f6, f7 = st.columns(3)
             with f5: f_cat = st.selectbox("구분", ["PRODUCT", "SOLUTION", "기타"])
             with f6: f_pf = st.text_input("제품군 (예: Rack, Inrow)")
             with f7: f_stat = st.selectbox("상태", STATUS_LIST)
-            with f8: f_mgr = st.selectbox("우리측 담당자", DEFAULT_MANAGERS)
             
-            f9, f10 = st.columns(2)
-            with f9: f_clt = st.text_input("상대 담당자")
-            with f10: f_date = st.date_input("최초 견적일", value=datetime.now())
+            f8, f9 = st.columns(2)
+            with f8: f_clt = st.text_input("상대 담당자")
+            with f9: f_date = st.date_input("최초 견적일", value=datetime.now())
             f_rem = st.text_input("비고 (특이사항)")
             
             if st.form_submit_button("등록 완료", use_container_width=True):
                 if f_comp and f_name:
                     conn = sqlite3.connect(DB_PATH)
                     conn.execute("""
-                        INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (f_no, f_comp, f_name, f_cat, f_pf, f_stat, f_mgr, f_clt, f_date.strftime("%Y-%m-%d"), int(f_amt), f_rem, get_kst_date()))
+                        INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (f_no, f_comp, f_name, f_cat, f_pf, f_stat, f_clt, f_date.strftime("%Y-%m-%d"), amphitheater_amt:=int(f_amt), f_rem, get_kst_date()))
                     conn.commit(); conn.close()
                     st.success("✅ 프로젝트가 등록되었습니다!")
                     st.rerun()
@@ -151,8 +149,8 @@ if menu == MENU_1:
 
     df_current = get_db_data()
     
-    # 정렬 및 에러 방지용 표준 컬럼 순서
-    ORDERED_COLS = ["pjt_no", "company", "pjt_name", "product_family", "category", "status", "manager", "client_manager", "quote_date", "amount", "remarks", "updated_at"]
+    # 매니저님 요청 순서 (우리측 담당 제외): PJT No -> 수주업체 -> 프로젝트명 -> 제품군 -> 구분 -> 상태 -> 상대 담당 -> 견적일 -> 수주금액 -> 비고 -> 최종 업데이트
+    ORDERED_COLS = ["pjt_no", "company", "pjt_name", "product_family", "category", "status", "client_manager", "quote_date", "amount", "remarks", "updated_at"]
     
     edited_df = st.data_editor(
         df_current,
@@ -164,7 +162,7 @@ if menu == MENU_1:
             "pjt_no": "PJT No", "company": "수주업체", "pjt_name": "프로젝트명",
             "product_family": "제품군", "category": "구분",
             "status": st.column_config.SelectboxColumn("상태", options=STATUS_LIST),
-            "manager": "우리측 담당", "client_manager": "상대 담당", "quote_date": "견적일",
+            "client_manager": "상대 담당", "quote_date": "견적일",
             "amount": st.column_config.NumberColumn("수주금액 (원)", format="%d"),
             "remarks": "비고", "updated_at": st.column_config.TextColumn("최종 업데이트", disabled=True)
         },
@@ -176,44 +174,45 @@ if menu == MENU_1:
             final_df = edited_df.fillna("-")
             final_df['amount'] = pd.to_numeric(final_df['amount'], errors='coerce').fillna(0).astype(int)
             final_df['updated_at'] = get_kst_date()
-            final_df = final_df[ORDERED_COLS] # 컬럼 구조 동기화 보장
+            final_df = final_df[ORDERED_COLS]
             
             conn = sqlite3.connect(DB_PATH)
             conn.execute("DELETE FROM projects")
             final_df.to_sql('projects', conn, if_exists='append', index=False)
             conn.commit(); conn.close()
-            st.success("✅ 모든 변경사항 및 삭제가 완벽히 저장되었습니다.")
+            st.success("✅ 변경사항 및 삭제가 완벽히 저장되었습니다.")
             st.rerun()
         except Exception as e: st.error(f"저장 중 오류: {e}")
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 2] 주간 영업 회의 보드 (정상 복구 완료)
+# [Menu 2] 주간 영업 회의 보드
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_2:
     st.markdown("<p style='color:gray;'>💡 미팅 시 즉시 검색하여 보고하세요. (읽기 전용)</p>", unsafe_allow_html=True)
     df_meet = get_db_data()
     if not df_meet.empty:
-        search_query = st.text_input("🔍 수주업체 또는 프로젝트명 빠른 검색", placeholder="키워드 입력")
-        col_f1, col_f2 = st.columns([7, 3])
-        with col_f1: sel_status = st.multiselect("📌 상태 필터링", STATUS_LIST, default=STATUS_LIST)
-        with col_f2:
-            unique_mgr = df_meet['manager'].unique().tolist()
-            sel_mgr = st.multiselect("👨‍💼 담당자 필터링", unique_mgr, default=unique_mgr)
-            
-        meet_filtered = df_meet[df_meet['status'].isin(sel_status) & df_meet['manager'].isin(sel_mgr)]
+        search_query = st.text_input("🔍 수주업체, 프로젝트명 또는 상대담당자 검색", placeholder="키워드 입력")
+        
+        sel_status = st.multiselect("📌 상태 필터링", STATUS_LIST, default=STATUS_LIST)
+        meet_filtered = df_meet[df_meet['status'].isin(sel_status)]
+        
         if search_query:
-            meet_filtered = meet_filtered[meet_filtered['company'].str.contains(search_query, na=False) | meet_filtered['pjt_name'].str.contains(search_query, na=False)]
+            meet_filtered = meet_filtered[
+                meet_filtered['company'].str.contains(search_query, na=False) | 
+                meet_filtered['pjt_name'].str.contains(search_query, na=False) |
+                meet_filtered['client_manager'].str.contains(search_query, na=False)
+            ]
             
         meet_filtered['수주금액'] = meet_filtered['amount'].apply(lambda x: f"₩ {int(x):,}")
         
-        meet_show = meet_filtered[['updated_at', 'status', 'company', 'pjt_name', 'product_family', 'manager', 'client_manager', 'quote_date', '수주금액', 'remarks']]
-        meet_show.columns = ['최종업데이트', '상태', '수주업체', '프로젝트명', '제품군', '우리담당', '상대담당', '견적일', '수주금액', '비고']
+        meet_show = meet_filtered[['updated_at', 'status', 'company', 'pjt_name', 'product_family', 'client_manager', 'quote_date', '수주금액', 'remarks']]
+        meet_show.columns = ['최종업데이트', '상태', '수주업체', '프로젝트명', '제품군', '상대담당', '견적일', '수주금액', '비고']
         st.dataframe(meet_show.sort_values(by='최종업데이트', ascending=False).reset_index(drop=True), use_container_width=True, height=500)
     else: st.info("데이터가 존재하지 않습니다.")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# [Menu 3] 경영진 성과 대시보드 (정상 복구 완료)
-# ═════════════════════════════════════════════════════════════════════════════
+# ───══════════════════════════════════════════════════════════════════════════
+# [Menu 3] 경영진 성과 대시보드
+# ───══════════════════════════════════════════════════════════════════════════
 elif menu == MENU_3:
     df_dash = get_db_data()
     if df_dash.empty: st.info("데이터가 존재하지 않습니다.")
@@ -232,10 +231,10 @@ elif menu == MENU_3:
             pf_data = df_dash.groupby('product_family')['amount'].sum().reset_index()
             st.plotly_chart(px.pie(pf_data, values='amount', names='product_family', title="📦 제품군별 비중 (금액 기준)", hole=0.4), use_container_width=True)
         with c2:
-            st.plotly_chart(px.bar(df_dash, x='manager', y='amount', color='status', title="👨‍💼 담당자별 성과"), use_container_width=True)
+            st.plotly_chart(px.bar(df_dash, x='company', y='amount', color='status', title="🏢 업체별 영업 성과 규모"), use_container_width=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 4] 시스템 및 데이터 관리 (순수 엑셀 업로드 연동)
+# [Menu 4] 시스템 및 데이터 관리
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_4:
     st.markdown("### 📥 엑셀 데이터 불러오기")
@@ -253,11 +252,10 @@ elif menu == MENU_4:
             mapped["category"] = safe_get(raw, ['구분', '종류'], 'PRODUCT')
             mapped["product_family"] = safe_get(raw, ['제품군', '품목', '아이템'], '-')
             mapped["status"] = safe_get(raw, ['상태', '진행'], '🔵 견적').apply(clean_status)
-            mapped["manager"] = safe_get(raw, ['우리담당', '영업대표', '우리측담당', '담당자'], '-')
-            mapped["client_manager"] = safe_get(raw, ['상대담당', '고객담당', '업체담당'], '-')
+            mapped["client_manager"] = safe_get(raw, ['상대담당', '고객담당', '업체담당', '담당자'], '-')
             
             q_date = safe_get(raw, ['견적일', '날짜', '최초견적'], get_kst_date())
-            mapped["quote_date"] = q_date.astype(str).str.split(' ').str[0] # 시간 날리기
+            mapped["quote_date"] = q_date.astype(str).str.split(' ').str[0]
             
             amt_s = safe_get(raw, ['금액', '매출', '수주금액'], 0)
             if amt_s.dtype == object:
@@ -267,15 +265,15 @@ elif menu == MENU_4:
             mapped["remarks"] = safe_get(raw, ['비고', '특이'], '-')
             mapped["updated_at"] = get_kst_date()
             
-            # DB 컬럼 순서 맞추기
-            db_cols = ["pjt_no", "company", "pjt_name", "category", "product_family", "status", "manager", "client_manager", "quote_date", "amount", "remarks", "updated_at"]
+            # DB 컬럼 구조 동기화 (manager 제거 반영)
+            db_cols = ["pjt_no", "company", "pjt_name", "category", "product_family", "status", "client_manager", "quote_date", "amount", "remarks", "updated_at"]
             mapped = mapped[db_cols]
             
             conn = sqlite3.connect(DB_PATH)
             mapped.to_sql('projects', conn, if_exists='append', index=False)
             conn.commit(); conn.close()
             
-            st.success("🎉 데이터 동기화가 성공적으로 완료되었습니다! 1번 탭에서 확인 및 수동 편집(합계 삭제)을 진행해 주세요.")
+            st.success("🎉 데이터 동기화가 완료되었습니다! 1번 탭에서 합계 행 수동 편집 및 내역을 확인해 주세요.")
             st.rerun()
         except Exception as e:
             st.error(f"동기화 오류 발생: {e}")
