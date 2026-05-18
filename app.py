@@ -56,8 +56,8 @@ if not st.session_state['logged_in']:
                 else: st.error("정보가 일치하지 않습니다.")
     st.stop()
 
-# ─── 3. 데이터베이스 초기화 (v28 구조) ─────────────────────────────────
-DB_PATH = "defog_v28_final.db"
+# ─── 3. 데이터베이스 초기화 (v29 구조) ─────────────────────────────────
+DB_PATH = "defog_v29_final.db"
 STATUS_LIST = ["🔵 견적", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
 def init_db():
@@ -97,8 +97,8 @@ init_db()
 # ─── 4. 사이드바 및 네비게이션 설정 ──────────────────────────────────────────
 MENU_1 = "📝 프로젝트 파이프라인 관리"
 MENU_2 = "🤝 주간 영업 회의 보드"
-MENU_3 = "📊 성과 대시보드"
-MENU_4 = "⚙️ 데이터 불러오기 / 내보내기"
+MENU_3 = "📊 경영진 성과 대시보드"
+MENU_4 = "⚙️ 시스템 및 데이터 관리"
 
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", use_container_width=True)
@@ -111,6 +111,11 @@ with st.sidebar:
         st.session_state['logged_in'] = False
         st.query_params.clear()
         st.rerun()
+
+    # ⭐ 매니저님 요청: 주소창 복사로 인한 프리패스 보안 우회 방지용 링크 블록 복구
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.info("⚠️ **보안 안내**\n\n로그인된 상태의 주소창 URL을 공유하면 다른 사람도 로그인 없이 접속하게 됩니다. 팀원 초대 시 주소창 대신 반드시 아래 **안전 링크**를 복사해 공유해 주세요.")
+    st.code("https://defog-sales-app.streamlit.app/", language="text")
 
 st.markdown(f"<h2 style='color:#1e3a8a; font-weight:800; margin-bottom: 30px;'>{menu}</h2>", unsafe_allow_html=True)
 
@@ -149,7 +154,7 @@ if menu == MENU_1:
 
     df_current = get_db_data()
     
-    # 표준 컬럼 순서 고정
+    # 표준 컬럼 순서 고정 (우리측 담당 제외)
     ORDERED_COLS = ["pjt_no", "company", "pjt_name", "product_family", "category", "status", "client_manager", "quote_date", "amount", "remarks", "updated_at"]
     
     edited_df = st.data_editor(
@@ -163,7 +168,6 @@ if menu == MENU_1:
             "product_family": "제품군", "category": "구분",
             "status": st.column_config.SelectboxColumn("상태", options=STATUS_LIST),
             "client_manager": "상대 담당", "quote_date": "견적일",
-            # ⭐ format="%,d" 지정을 통해 편집창 내에서도 실시간 천 단위 콤마가 구현됩니다.
             "amount": st.column_config.NumberColumn("수주금액 (원)", format="%,d"),
             "remarks": "비고", "updated_at": st.column_config.TextColumn("최종 업데이트", disabled=True)
         },
