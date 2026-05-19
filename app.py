@@ -10,9 +10,6 @@ import io
 def get_kst_date():
     return (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
 
-def get_kst_datetime():
-    return (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M")
-
 # ─── 1. 페이지 설정 및 시각적 테마 ──────────────────────────────────────────
 st.set_page_config(page_title="DEFOG 영업 허브", page_icon="🚀", layout="wide")
 
@@ -24,45 +21,23 @@ st.markdown("""
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05); border-top: 5px solid #2563eb; 
     }
     [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e2e8f0; }
-    .comment-box {
-        background: #f8fafc; border-left: 3px solid #2563eb;
-        border-radius: 0 8px 8px 0; padding: 10px 14px; margin-bottom: 8px;
-    }
-    .comment-meta { font-size: 11px; color: #94a3b8; margin-bottom: 3px; }
-    .comment-text { font-size: 14px; color: #1e293b; }
-    .log-row {
-        background: white; border-radius: 8px; padding: 10px 14px;
-        margin-bottom: 6px; border-left: 4px solid #2563eb;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-    }
-    .log-row-drop { border-left-color: #ef4444; }
-    .log-row-done { border-left-color: #10b981; }
-    .progress-wrap {
-        background: white; border-radius: 12px; padding: 18px 20px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px;
-    }
-    .progress-bar-bg { background: #e2e8f0; border-radius: 999px; height: 14px; overflow: hidden; margin-top: 8px; }
-    .progress-bar-fill { height: 14px; border-radius: 999px; }
     </style>
     """, unsafe_allow_html=True)
 
 # ─── 2. 팀원 계정 및 로그인 관리 ─────────────────────────────────────────────
 USERS = {
-    "ceo":     ("대표님",       "defog!ceo",     "admin"),
-    "leader1": ("김원중 팀장님", "defog!leader1", "leader"),
-    "leader2": ("김용신 팀장님", "defog!leader2", "leader"),
-    "manager": ("팀원",          "defog!manager", "member")
+    "ceo":     ("대표님", "defog!ceo"),
+    "leader1": ("김원중 팀장님", "defog!leader1"),
+    "leader2": ("김용신 팀장님", "defog!leader2"),
+    "manager": ("팀원", "defog!manager")
 }
-OUR_MEMBERS = ["김원중 팀장님", "김용신 팀장님", "팀원", "대표님", "-"]
 
 if 'logged_in' not in st.session_state:
     ticket = st.query_params.get("ticket", "")
     is_valid_ticket = False
     for uid in USERS:
         if ticket == f"defog_auth_{uid}_valid":
-            st.session_state['logged_in'] = True
-            st.session_state['user_name'] = USERS[uid][0]
-            st.session_state['user_role'] = USERS[uid][2]
+            st.session_state['logged_in'], st.session_state['user_name'] = True, USERS[uid][0]
             is_valid_ticket = True
             break
     if not is_valid_ticket: st.session_state['logged_in'] = False
@@ -75,52 +50,29 @@ if not st.session_state['logged_in']:
             u_pw = st.text_input("PW", type="password")
             if st.form_submit_button("시스템 접속", use_container_width=True):
                 if u_id in USERS and USERS[u_id][1] == u_pw:
-                    st.session_state['logged_in'] = True
-                    st.session_state['user_name'] = USERS[u_id][0]
-                    st.session_state['user_role'] = USERS[u_id][2]
+                    st.session_state['logged_in'], st.session_state['user_name'] = True, USERS[u_id][0]
                     st.query_params["ticket"] = f"defog_auth_{u_id}_valid"
                     st.rerun()
                 else: st.error("정보가 일치하지 않습니다.")
     st.stop()
 
-# ─── 3. 데이터베이스 초기화 (v30 구조) ─────────────────────────────────────
-DB_PATH = "defog_v30.db"
-STATUS_LIST = ["🔵 견적", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
-DROP_REASONS = ["가격 경쟁 패배", "예산 삭감/취소", "경쟁사 선정", "고객 요구사항 불일치", "내부 사정", "기타"]
+# ─── 3. 데이터베이스 초기화 (v30 엑셀 22개 컬럼 완벽 매칭 구조) ──────────────────
+DB_PATH = "defog_v30_final.db"
+# 피드백 반영: 견적 가능성 높은 건 분류 기능 추가
+STATUS_LIST = ["🔵 견적(🔥고확률)", "🔵 견적(일반)", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
-    # 메인 프로젝트 테이블 (our_manager, drop_reason 컬럼 추가)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS projects (
-            pjt_no TEXT, company TEXT, pjt_name TEXT, category TEXT, product_family TEXT,
-            status TEXT, our_manager TEXT, client_manager TEXT, quote_date TEXT,
-            amount INTEGER, drop_reason TEXT, remarks TEXT, updated_at TEXT
+            sort_order TEXT, division TEXT, quote_date TEXT, pjt_no TEXT,
+            company TEXT, pjt_name TEXT, category TEXT, expected_timeline TEXT,
+            status TEXT, target_date TEXT, progress TEXT, manager TEXT,
+            rack_system TEXT, power_system TEXT, cooling_system TEXT, snx_spec TEXT,
+            quantity INTEGER, amount INTEGER, client_manager TEXT, key_issue TEXT,
+            folder_link TEXT, legrand TEXT, updated_at TEXT
         )
     """)
-    # 상태 변경 이력 로그
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS status_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pjt_no TEXT, company TEXT, pjt_name TEXT,
-            from_status TEXT, to_status TEXT,
-            changed_by TEXT, changed_at TEXT, drop_reason TEXT
-        )
-    """)
-    # 프로젝트별 코멘트
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS comments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pjt_key TEXT, author TEXT, content TEXT, created_at TEXT
-        )
-    """)
-    # 월별 목표
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS monthly_targets (
-            year_month TEXT PRIMARY KEY, target_amount INTEGER
-        )
-    """)
-    conn.commit()
     conn.close()
 
 def get_db_data():
@@ -128,42 +80,6 @@ def get_db_data():
     df = pd.read_sql("SELECT * FROM projects", conn)
     conn.close()
     return df
-
-def get_comments(pjt_key):
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql("SELECT * FROM comments WHERE pjt_key=? ORDER BY created_at DESC", conn, params=[pjt_key])
-    conn.close()
-    return df
-
-def add_comment(pjt_key, author, content):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("INSERT INTO comments (pjt_key, author, content, created_at) VALUES (?,?,?,?)",
-                 (pjt_key, author, content, get_kst_datetime()))
-    conn.commit(); conn.close()
-
-def get_status_log():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql("SELECT * FROM status_log ORDER BY changed_at DESC", conn)
-    conn.close()
-    return df
-
-def log_status_change(pjt_no, company, pjt_name, from_s, to_s, changed_by, drop_reason=""):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""INSERT INTO status_log (pjt_no,company,pjt_name,from_status,to_status,changed_by,changed_at,drop_reason)
-                    VALUES (?,?,?,?,?,?,?,?)""",
-                 (pjt_no, company, pjt_name, from_s, to_s, changed_by, get_kst_datetime(), drop_reason))
-    conn.commit(); conn.close()
-
-def get_monthly_target(ym):
-    conn = sqlite3.connect(DB_PATH)
-    row = conn.execute("SELECT target_amount FROM monthly_targets WHERE year_month=?", (ym,)).fetchone()
-    conn.close()
-    return row[0] if row else 0
-
-def set_monthly_target(ym, amount):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("INSERT OR REPLACE INTO monthly_targets VALUES (?,?)", (ym, amount))
-    conn.commit(); conn.close()
 
 def safe_get(df, keywords, default_val):
     for col in df.columns:
@@ -174,482 +90,205 @@ def safe_get(df, keywords, default_val):
 
 def clean_status(text):
     text = str(text)
-    if "완료" in text: return "🟢 완료"
-    elif "대기" in text: return "🟠 납품대기중"
-    elif "진행" in text: return "🟡 진행중"
-    elif "Drop" in text or "취소" in text or "드롭" in text: return "🔴 Drop"
-    else: return "🔵 견적"
+    if "고확률" in text or "🔥" in text: return "🔵 견적(🔥고확률)"
+    elif "완료" in text or "🟢" in text: return "🟢 완료"
+    elif "대기" in text or "🟠" in text: return "🟠 납품대기중"
+    elif "진행" in text or "🟡" in text: return "🟡 진행중"
+    elif "Drop" in text or "취소" in text or "🔴" in text: return "🔴 Drop"
+    else: return "🔵 견적(일반)"
 
 init_db()
 
 # ─── 4. 사이드바 및 네비게이션 설정 ──────────────────────────────────────────
 MENU_1 = "📝 프로젝트 파이프라인 관리"
 MENU_2 = "🤝 주간 영업 회의 보드"
-MENU_3 = "📊 성과 대시보드"
-MENU_4 = "💬 프로젝트 코멘트"
-MENU_5 = "📋 상태 변경 이력"
-MENU_6 = "📄 주간 리포트 생성"
-MENU_7 = "⚙️ 데이터 불러오기 / 내보내기"
+MENU_3 = "📊 경영진 성과 대시보드"
+MENU_4 = "⚙️ 시스템 및 데이터 관리"
 
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", use_container_width=True)
     st.markdown("---")
     st.markdown(f"👤 **{st.session_state['user_name']}** 접속중")
     st.markdown("---")
-    menu = st.radio("메뉴 이동", [MENU_1, MENU_2, MENU_3, MENU_4, MENU_5, MENU_6, MENU_7], label_visibility="collapsed")
+    menu = st.radio("메뉴 이동", [MENU_1, MENU_2, MENU_3, MENU_4], label_visibility="collapsed")
     st.markdown("---")
     if st.button("로그아웃", use_container_width=True):
         st.session_state['logged_in'] = False
         st.query_params.clear()
         st.rerun()
 
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.info("⚠️ **보안 안내**\n\n팀원 초대 시 주소창 복사 금지! 아래 안전 링크를 활용하세요.")
+    st.code("https://defog-sales-app.streamlit.app/", language="text")
+
 st.markdown(f"<h2 style='color:#1e3a8a; font-weight:800; margin-bottom: 30px;'>{menu}</h2>", unsafe_allow_html=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 1] 프로젝트 파이프라인 관리
+# [Menu 1] 프로젝트 파이프라인 관리 (22개 컬럼 완벽 구현)
 # ═════════════════════════════════════════════════════════════════════════════
 if menu == MENU_1:
-    with st.expander("🚀 스마트 신규 프로젝트 직접 등록", expanded=False):
-        with st.form("quick_add_form"):
-            f1, f2, f3, f4 = st.columns(4)
-            with f1: f_no = st.text_input("PJT No")
-            with f2: f_comp = st.text_input("수주업체 *")
-            with f3: f_name = st.text_input("프로젝트명 *")
-            with f4: f_amt = st.number_input("수주금액 (원)", min_value=0, step=1000000)
-
-            f5, f6, f7, f8 = st.columns(4)
-            with f5: f_cat = st.selectbox("구분", ["PRODUCT", "SOLUTION", "기타"])
-            with f6: f_pf = st.text_input("제품군 (예: Rack, Inrow)")
-            with f7: f_stat = st.selectbox("상태", STATUS_LIST)
-            with f8: f_our = st.selectbox("우리 담당자 *", OUR_MEMBERS)
-
-            f9, f10 = st.columns(2)
-            with f9: f_clt = st.text_input("상대 담당자")
-            with f10: f_date = st.date_input("최초 견적일", value=datetime.now())
-
-            f_drop = ""
-            if f_stat == "🔴 Drop":
-                f_drop = st.selectbox("🔴 Drop 사유 *", DROP_REASONS)
-
-            f_rem = st.text_input("비고 (특이사항)")
-
-            if st.form_submit_button("등록 완료", use_container_width=True):
-                if f_comp and f_name:
-                    conn = sqlite3.connect(DB_PATH)
-                    conn.execute("""
-                        INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (f_no, f_comp, f_name, f_cat, f_pf, f_stat, f_our, f_clt,
-                          f_date.strftime("%Y-%m-%d"), int(f_amt), f_drop, f_rem, get_kst_date()))
-                    conn.commit(); conn.close()
-                    log_status_change(f_no, f_comp, f_name, "-", f_stat, st.session_state['user_name'], f_drop)
-                    st.success("✅ 프로젝트가 등록되었습니다!")
-                    st.rerun()
-                else: st.error("수주업체와 프로젝트명은 필수입니다.")
-
     df_current = get_db_data()
-
-    # 담당자 / 상태 필터
-    fc1, fc2 = st.columns([1, 3])
-    with fc1: filter_mgr = st.selectbox("👤 담당자 필터", ["전체"] + OUR_MEMBERS[:-1])
-    with fc2: filter_status = st.multiselect("📌 상태 필터", STATUS_LIST, default=STATUS_LIST)
-
-    df_view = df_current.copy()
-    if filter_mgr != "전체": df_view = df_view[df_view['our_manager'] == filter_mgr]
-    df_view = df_view[df_view['status'].isin(filter_status)]
-
-    ORDERED_COLS = ["pjt_no", "company", "pjt_name", "product_family", "category", "status",
-                    "our_manager", "client_manager", "quote_date", "amount", "drop_reason", "remarks", "updated_at"]
-
-    # 누락 컬럼 보정
-    for col in ORDERED_COLS:
-        if col not in df_view.columns: df_view[col] = "-"
-
+    
+    st.markdown("### 📝 파이프라인 실시간 편집 테이블")
+    st.caption("💡 **수정/삭제 가이드:** 셀을 더블클릭하여 수정하거나 행 선택 후 'Delete' 키로 행 삭제가 가능합니다. 최종 저장을 꼭 눌러주세요.")
+    
+    # 엑셀과 100% 동일한 순서 배열 고정
+    ORDERED_COLS = [
+        "sort_order", "division", "quote_date", "pjt_no", "company", "pjt_name", "category", 
+        "expected_timeline", "status", "target_date", "progress", "manager", 
+        "rack_system", "power_system", "cooling_system", "snx_spec", "quantity", 
+        "amount", "client_manager", "key_issue", "folder_link", "legrand", "updated_at"
+    ]
+    
     edited_df = st.data_editor(
-        df_view,
+        df_current,
         num_rows="dynamic",
         use_container_width=True,
-        height=500,
+        height=550,
         column_order=ORDERED_COLS,
         column_config={
-            "pjt_no": "PJT No", "company": "수주업체", "pjt_name": "프로젝트명",
-            "product_family": "제품군", "category": "구분",
-            "status": st.column_config.SelectboxColumn("상태", options=STATUS_LIST),
-            "our_manager": st.column_config.SelectboxColumn("우리 담당자", options=OUR_MEMBERS),
-            "client_manager": "상대 담당", "quote_date": "견적일",
-            "amount": st.column_config.NumberColumn("수주금액 (원)", format="%,d"),
-            "drop_reason": st.column_config.SelectboxColumn("Drop 사유", options=[""] + DROP_REASONS),
-            "remarks": "비고",
-            "updated_at": st.column_config.TextColumn("최종 업데이트", disabled=True)
+            "sort_order": "정렬", "division": "구분", "quote_date": "견적일", "pjt_no": "프로젝트 번호",
+            "company": "프로젝트 수주 업체", "pjt_name": "프로젝트 명", "category": "분류",
+            "expected_timeline": "예상 일정", "status": st.column_config.SelectboxColumn("상태", options=STATUS_LIST),
+            "target_date": "목표 완료일", "progress": "진행률", "manager": "관리자",
+            "rack_system": "Racking System", "power_system": "Power System", "cooling_system": "Cooling System",
+            "snx_spec": "SNX AI-S421260", "quantity": st.column_config.NumberColumn("수량", format="%d"),
+            "amount": st.column_config.NumberColumn("수주 금액 (원)", format="%,d"),
+            "client_manager": "업체 담당자", "key_issue": "핵심 이슈", "folder_link": "폴더",
+            "legrand": "르그랑", "updated_at": st.column_config.TextColumn("최종 업데이트", disabled=True)
         },
         key="main_editor"
     )
 
     if st.button("💾 변경사항 및 삭제 내용 저장 (DB 확정)", type="primary", use_container_width=True):
         try:
-            # 상태 변경 이력 감지
-            if not df_current.empty:
-                old_idx = df_current.set_index(['company', 'pjt_name'])
-                for _, row in edited_df.iterrows():
-                    key = (str(row.get('company', '')), str(row.get('pjt_name', '')))
-                    if key in old_idx.index:
-                        old_status = old_idx.loc[key, 'status']
-                        if isinstance(old_status, pd.Series): old_status = old_status.iloc[0]
-                        new_status = row.get('status', '')
-                        if old_status != new_status:
-                            drop_r = row.get('drop_reason', '') if new_status == "🔴 Drop" else ''
-                            log_status_change(row.get('pjt_no',''), row.get('company',''), row.get('pjt_name',''),
-                                              old_status, new_status, st.session_state['user_name'], drop_r)
-
-            # Drop 사유 없는 건 경고
-            drop_no_reason = edited_df[
-                (edited_df['status'] == "🔴 Drop") &
-                (edited_df['drop_reason'].isna() | edited_df['drop_reason'].isin(["", "-"]))
-            ]
-            if not drop_no_reason.empty:
-                st.warning(f"⚠️ Drop 사유가 없는 프로젝트가 {len(drop_no_reason)}건 있습니다. 사유를 입력해 주세요.")
-
             final_df = edited_df.fillna("-")
             final_df['amount'] = pd.to_numeric(final_df['amount'], errors='coerce').fillna(0).astype(int)
+            final_df['quantity'] = pd.to_numeric(final_df['quantity'], errors='coerce').fillna(0).astype(int)
             final_df['updated_at'] = get_kst_date()
-
-            # 필터된 경우 나머지 행과 합치기
-            if filter_mgr != "전체" or len(filter_status) < len(STATUS_LIST):
-                remaining = df_current[~df_current.index.isin(df_view.index)]
-                for col in ORDERED_COLS:
-                    if col not in remaining.columns: remaining[col] = "-"
-                final_df = pd.concat([final_df, remaining], ignore_index=True)
-
-            for col in ORDERED_COLS:
-                if col not in final_df.columns: final_df[col] = "-"
             final_df = final_df[ORDERED_COLS]
-
+            
             conn = sqlite3.connect(DB_PATH)
             conn.execute("DELETE FROM projects")
             final_df.to_sql('projects', conn, if_exists='append', index=False)
             conn.commit(); conn.close()
-            st.success("✅ 모든 변경사항 및 삭제가 완벽히 저장되었습니다.")
+            st.success("✅ 대형 파이프라인 동기화 자산이 안전하게 저장되었습니다.")
             st.rerun()
-        except Exception as e: st.error(f"저장 중 오류: {e}")
+        except Exception as e: st.error(f"저장 중 치명적 오류 발생: {e}")
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 2] 주간 영업 회의 보드
+# [Menu 2] 주간 영업 회의 보드 (고확률 필터 탑재)
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_2:
-    st.markdown("<p style='color:gray;'>💡 미팅 시 즉시 검색하여 보고하세요. (읽기 전용)</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color:gray;'>💡 주간 회의 보고용 화면입니다. 상단의 필터를 활용해 중요 건을 바로 추려내세요.</p>", unsafe_allow_html=True)
     df_meet = get_db_data()
     if not df_meet.empty:
-        mc1, mc2, mc3 = st.columns([2, 1, 1])
-        with mc1: search_query = st.text_input("🔍 수주업체, 프로젝트명 또는 상대담당자 검색", placeholder="키워드 입력")
-        with mc2: filter_our = st.selectbox("👤 우리 담당자", ["전체"] + OUR_MEMBERS[:-1])
-        with mc3: sel_status = st.multiselect("📌 상태 필터링", STATUS_LIST, default=STATUS_LIST)
-
+        search_query = st.text_input("🔍 수주업체 또는 프로젝트명 빠른 검색", placeholder="검색어 입력")
+        
+        # 피드백 반영: 고확률 견적건 위주로 먼저 체크할 수 있는 multiselect 필터
+        sel_status = st.multiselect("📌 상태 필터링 (고확률 견적 우선 선택 가능)", STATUS_LIST, default=STATUS_LIST)
         meet_filtered = df_meet[df_meet['status'].isin(sel_status)]
-        if filter_our != "전체": meet_filtered = meet_filtered[meet_filtered['our_manager'] == filter_our]
+        
         if search_query:
             meet_filtered = meet_filtered[
-                meet_filtered['company'].str.contains(search_query, na=False, case=False) |
-                meet_filtered['pjt_name'].str.contains(search_query, na=False, case=False) |
-                meet_filtered['client_manager'].str.contains(search_query, na=False, case=False)
+                meet_filtered['company'].str.contains(search_query, na=False) | 
+                meet_filtered['pjt_name'].str.contains(search_query, na=False)
             ]
-
-        meet_filtered = meet_filtered.copy()
-        meet_filtered['수주금액'] = meet_filtered['amount'].apply(lambda x: f"₩ {int(x):,}")
-
-        meet_show = meet_filtered[['updated_at', 'status', 'our_manager', 'company', 'pjt_name',
-                                    'product_family', 'client_manager', 'quote_date', '수주금액', 'remarks']]
-        meet_show.columns = ['최종업데이트', '상태', '우리담당', '수주업체', '프로젝트명', '제품군', '상대담당', '견적일', '수주금액', '비고']
-        st.dataframe(meet_show.sort_values(by='최종업데이트', ascending=False).reset_index(drop=True),
-                     use_container_width=True, height=500)
-        st.markdown(f"<p style='color:gray; text-align:right; font-size:12px;'>총 {len(meet_filtered)}건 | 합계 ₩ {meet_filtered['amount'].sum():,}</p>",
-                    unsafe_allow_html=True)
+            
+        meet_filtered['수주 금액'] = meet_filtered['amount'].apply(lambda x: f"₩ {int(x):,}")
+        
+        meet_show = meet_filtered[['quote_date', 'status', 'company', 'pjt_name', 'rack_system', 'power_system', 'cooling_system', 'client_manager', '수주 금액', 'key_issue']]
+        meet_show.columns = ['견적일', '상태', '프로젝트 수주 업체', '프로젝트 명', 'Racking', 'Power', 'Cooling', '업체 담당자', '수주 금액', '핵심 이슈']
+        st.dataframe(meet_show.sort_values(by='견적일', ascending=False).reset_index(drop=True), use_container_width=True, height=500)
     else: st.info("데이터가 존재하지 않습니다.")
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 3] 경영진 성과 대시보드
+# [Menu 3] 경영진 성과 대시보드 (차트 구체화 피드백 반영)
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_3:
     df_dash = get_db_data()
-    if df_dash.empty: st.info("데이터가 존재하지 않습니다.")
+    if df_dash.empty: st.info("분석할 데이터가 존재하지 않습니다.")
     else:
-        this_ym = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m")
-        current_target = get_monthly_target(this_ym)
-
-        # 목표 설정 (팀장/대표)
-        if st.session_state.get('user_role') in ['admin', 'leader']:
-            with st.expander("🎯 이번 달 수주 목표 설정", expanded=(current_target == 0)):
-                with st.form("target_form"):
-                    new_target = st.number_input("목표 금액 (원)", min_value=0, value=current_target, step=10000000)
-                    if st.form_submit_button("저장", use_container_width=True):
-                        set_monthly_target(this_ym, int(new_target))
-                        st.success("✅ 목표가 저장되었습니다!")
-                        st.rerun()
-
-        won_amt  = df_dash[df_dash['status'] == "🟢 완료"]['amount'].sum()
+        won_amt = df_dash[df_dash['status'] == "🟢 완료"]['amount'].sum()
         active_amt = df_dash[~df_dash['status'].isin(["🟢 완료", "🔴 Drop"])]['amount'].sum()
-        drop_cnt = len(df_dash[df_dash['status'] == "🔴 Drop"])
-        drop_rate = round(drop_cnt / len(df_dash) * 100, 1) if len(df_dash) > 0 else 0
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.markdown(f"<div class='metric-card'><small>현재 진행 금액</small><h3>₩ {active_amt:,}</h3></div>", unsafe_allow_html=True)
+        
+        m1, m2, m3 = st.columns(3)
+        m1.markdown(f"<div class='metric-card'><small>현재 파이프라인 진행액</small><h3>₩ {active_amt:,}</h3></div>", unsafe_allow_html=True)
         m2.markdown(f"<div class='metric-card' style='border-top-color:#10b981;'><small>올해 수주 확정액</small><h3>₩ {won_amt:,}</h3></div>", unsafe_allow_html=True)
-        m3.markdown(f"<div class='metric-card' style='border-top-color:#f59e0b;'><small>총 파이프라인 건수</small><h3>{len(df_dash)} 건</h3></div>", unsafe_allow_html=True)
-        m4.markdown(f"<div class='metric-card' style='border-top-color:#ef4444;'><small>Drop 비율</small><h3>{drop_rate}%</h3></div>", unsafe_allow_html=True)
-
+        m3.markdown(f"<div class='metric-card' style='border-top-color:#f59e0b;'><small>총 파이프라인 등록건수</small><h3>{len(df_dash)} 건</h3></div>", unsafe_allow_html=True)
+        
         st.markdown("<br>", unsafe_allow_html=True)
-
-        # 목표 달성률 바
-        if current_target > 0:
-            pct = min(won_amt / current_target * 100, 100)
-            color = "#10b981" if pct >= 80 else "#f59e0b" if pct >= 50 else "#ef4444"
-            st.markdown(f"""
-            <div class='progress-wrap'>
-                <div style='display:flex; justify-content:space-between;'>
-                    <b>🎯 {this_ym} 목표 달성률</b>
-                    <b style='color:{color};'>{pct:.1f}%</b>
-                </div>
-                <div style='color:gray; font-size:13px; margin:4px 0;'>₩ {won_amt:,} / 목표 ₩ {current_target:,}</div>
-                <div class='progress-bar-bg'>
-                    <div class='progress-bar-fill' style='width:{pct}%; background:{color};'></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
         c1, c2 = st.columns(2)
         with c1:
-            pf_data = df_dash.groupby('product_family')['amount'].sum().reset_index()
-            st.plotly_chart(px.pie(pf_data, values='amount', names='product_family',
-                                   title="📦 제품군별 비중 (금액 기준)", hole=0.4), use_container_width=True)
+            # 피드백 반영: 세분화된 인프라 상태 분석 차트
+            st.plotly_chart(px.bar(df_dash, x='status', y='amount', color='category', title="📈 파이프라인 상태별/분류별 규모 현황"), use_container_width=True)
         with c2:
-            # 담당자별 수주 확정액
-            mgr_data = df_dash[df_dash['status'] == "🟢 완료"].groupby('our_manager')['amount'].sum().reset_index()
-            mgr_data.columns = ['담당자', '수주금액']
-            if not mgr_data.empty:
-                st.plotly_chart(px.bar(mgr_data, x='담당자', y='수주금액',
-                                       title="👤 담당자별 수주 확정액",
-                                       color='수주금액', color_continuous_scale='Blues'), use_container_width=True)
-
-        st.plotly_chart(px.bar(df_dash, x='company', y='amount', color='status',
-                                title="🏢 업체별 영업 성과 규모"), use_container_width=True)
-
-        # Drop 사유 분석
-        drop_df = df_dash[(df_dash['status'] == "🔴 Drop") & df_dash['drop_reason'].notna() & ~df_dash['drop_reason'].isin(["-", ""])]
-        if not drop_df.empty:
-            dr_data = drop_df['drop_reason'].value_counts().reset_index()
-            dr_data.columns = ['사유', '건수']
-            st.plotly_chart(px.bar(dr_data, x='사유', y='건수',
-                                   title="🔴 Drop 사유 분석", color='건수',
-                                   color_continuous_scale='Reds'), use_container_width=True)
+            st.plotly_chart(px.box(df_dash, x='category', y='amount', title="🏢 분류별 프로젝트 금액 분포 대시보드"), use_container_width=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 4] 프로젝트 코멘트
+# [Menu 4] 시스템 및 데이터 관리 (22개 컬럼 완벽 맵퍼 시스템)
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_4:
-    st.markdown("<p style='color:gray;'>💡 각 프로젝트에 맥락 메모를 남기세요. 팀원 모두가 볼 수 있습니다.</p>", unsafe_allow_html=True)
-    df_cmt = get_db_data()
-
-    if df_cmt.empty:
-        st.info("등록된 프로젝트가 없습니다.")
-    else:
-        df_cmt['label'] = df_cmt['company'] + "  |  " + df_cmt['pjt_name']
-        selected = st.selectbox("📂 프로젝트 선택", df_cmt['label'].tolist())
-
-        if selected:
-            row = df_cmt[df_cmt['label'] == selected].iloc[0]
-            pjt_key = f"{row['company']}_{row['pjt_name']}"
-
-            st.markdown(f"""
-            <div style='background:white; border-radius:10px; padding:14px 18px; margin-bottom:16px;
-                        border-left:5px solid #2563eb; box-shadow:0 2px 8px rgba(0,0,0,0.05);'>
-                <b style='font-size:15px;'>{row['pjt_name']}</b><br>
-                <span style='color:gray; font-size:13px;'>{row['company']} | {row['status']} | 담당: {row.get('our_manager','-')} | ₩ {int(row['amount']):,}</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-            with st.form("comment_form", clear_on_submit=True):
-                new_cmt = st.text_area("💬 코멘트 작성", placeholder="특이사항, 다음 액션, 맥락 등을 남겨주세요.", height=80)
-                if st.form_submit_button("등록", use_container_width=True):
-                    if new_cmt.strip():
-                        add_comment(pjt_key, st.session_state['user_name'], new_cmt.strip())
-                        st.success("✅ 등록되었습니다!")
-                        st.rerun()
-                    else: st.error("내용을 입력해 주세요.")
-
-            cmt_df = get_comments(pjt_key)
-            if cmt_df.empty:
-                st.markdown("<p style='color:gray;'>아직 코멘트가 없습니다.</p>", unsafe_allow_html=True)
-            else:
-                st.markdown(f"**💬 코멘트 {len(cmt_df)}개**")
-                for _, c in cmt_df.iterrows():
-                    st.markdown(f"""
-                    <div class='comment-box'>
-                        <div class='comment-meta'>👤 {c['author']} · {c['created_at']}</div>
-                        <div class='comment-text'>{c['content']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-# ═════════════════════════════════════════════════════════════════════════════
-# [Menu 5] 상태 변경 이력
-# ═════════════════════════════════════════════════════════════════════════════
-elif menu == MENU_5:
-    st.markdown("<p style='color:gray;'>💡 프로젝트 상태 변경 시 자동으로 기록됩니다.</p>", unsafe_allow_html=True)
-    log_df = get_status_log()
-
-    if log_df.empty:
-        st.info("변경 이력이 없습니다. 프로젝트 상태를 변경하고 저장하면 자동으로 기록됩니다.")
-    else:
-        lc1, lc2 = st.columns(2)
-        with lc1: filter_who = st.selectbox("변경자 필터", ["전체"] + OUR_MEMBERS[:-1])
-        with lc2: filter_to  = st.multiselect("변경된 상태 필터", STATUS_LIST, default=STATUS_LIST)
-
-        flog = log_df[log_df['to_status'].isin(filter_to)]
-        if filter_who != "전체": flog = flog[flog['changed_by'] == filter_who]
-
-        st.markdown(f"**총 {len(flog)}건의 변경 이력**")
-        for _, row in flog.iterrows():
-            drop_r = f" ({row.get('drop_reason','')})" if row.get('drop_reason') and row.get('to_status') == "🔴 Drop" else ""
-            css_class = "log-row-drop" if "Drop" in str(row.get('to_status','')) else "log-row-done" if "완료" in str(row.get('to_status','')) else ""
-            st.markdown(f"""
-            <div class='log-row {css_class}'>
-                <span style='font-size:14px;'>
-                    <b>{row.get('company','')} | {row.get('pjt_name','')}</b>
-                    &nbsp;&nbsp;{row.get('from_status','?')} → {row.get('to_status','?')}{drop_r}
-                </span><br>
-                <span style='font-size:12px; color:gray;'>👤 {row.get('changed_by','')} · {row.get('changed_at','')}</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-# ═════════════════════════════════════════════════════════════════════════════
-# [Menu 6] 주간 리포트 생성
-# ═════════════════════════════════════════════════════════════════════════════
-elif menu == MENU_6:
-    st.markdown("<p style='color:gray;'>💡 버튼 하나로 주간 현황을 뽑아 슬랙 / 카카오에 바로 복붙하세요.</p>", unsafe_allow_html=True)
-    df_rep = get_db_data()
-    log_rep = get_status_log()
-
-    if df_rep.empty:
-        st.info("데이터가 존재하지 않습니다.")
-    else:
-        today = datetime.utcnow() + timedelta(hours=9)
-        week_ago = (today - timedelta(days=7)).strftime("%Y-%m-%d")
-        today_str = today.strftime("%Y-%m-%d")
-
-        won_df   = df_rep[df_rep['status'] == "🟢 완료"]
-        active_df = df_rep[~df_rep['status'].isin(["🟢 완료", "🔴 Drop"])]
-        drop_df  = df_rep[df_rep['status'] == "🔴 Drop"]
-
-        recent_log = log_rep[log_rep['changed_at'] >= week_ago] if not log_rep.empty else pd.DataFrame()
-        new_wk  = recent_log[recent_log['from_status'] == "-"] if not recent_log.empty else pd.DataFrame()
-        won_wk  = recent_log[recent_log['to_status'] == "🟢 완료"] if not recent_log.empty else pd.DataFrame()
-        drop_wk = recent_log[recent_log['to_status'] == "🔴 Drop"] if not recent_log.empty else pd.DataFrame()
-
-        lines = [
-            f"📊 *DEFOG 주간 영업 현황 리포트*",
-            f"📅 기준일: {today_str}",
-            f"",
-            f"━━━━━━━━━━━━━━━━━━━━",
-            f"📌 *전체 파이프라인 현황*",
-            f"  • 총 프로젝트: {len(df_rep)}건",
-            f"  • 진행중 금액: ₩ {active_df['amount'].sum():,}",
-            f"  • 수주 확정액: ₩ {won_df['amount'].sum():,} ({len(won_df)}건)",
-            f"  • Drop 건수: {len(drop_df)}건",
-            f"",
-            f"━━━━━━━━━━━━━━━━━━━━",
-            f"📅 *이번 주 (최근 7일) 변동*",
-            f"  • 신규 등록: {len(new_wk)}건",
-            f"  • 수주 완료: {len(won_wk)}건",
-            f"  • Drop 발생: {len(drop_wk)}건",
-        ]
-
-        if not drop_wk.empty:
-            lines += ["", "🔴 *이번 주 Drop 건*"]
-            for _, r in drop_wk.iterrows():
-                rsn = f" ({r.get('drop_reason','')})" if r.get('drop_reason') else ""
-                lines.append(f"  • {r.get('company','')} | {r.get('pjt_name','')}{rsn}")
-
-        if not won_wk.empty:
-            lines += ["", "🟢 *이번 주 수주 완료*"]
-            for _, r in won_wk.iterrows():
-                lines.append(f"  • {r.get('company','')} | {r.get('pjt_name','')}")
-
-        if 'our_manager' in df_rep.columns:
-            lines += ["", "━━━━━━━━━━━━━━━━━━━━", "👤 *담당자별 현황*"]
-            for mgr in [m for m in OUR_MEMBERS if m != "-"]:
-                m_df = df_rep[df_rep['our_manager'] == mgr]
-                if m_df.empty: continue
-                m_act = m_df[~m_df['status'].isin(["🟢 완료", "🔴 Drop"])]
-                m_won = m_df[m_df['status'] == "🟢 완료"]
-                lines.append(f"  • {mgr}: 진행 {len(m_act)}건 / 완료 {len(m_won)}건 (₩ {m_won['amount'].sum():,})")
-
-        lines += ["", f"— DEFOG 영업 허브 자동 생성"]
-
-        st.text_area("📋 리포트 (전체 선택 후 복사)", value="\n".join(lines), height=500)
-
-        st.markdown("---")
-        st.markdown("### 📥 전체 데이터 엑셀 다운로드")
-        out = io.BytesIO()
-        with pd.ExcelWriter(out, engine='openpyxl') as writer:
-            df_rep.to_excel(writer, index=False, sheet_name='파이프라인')
-            if not log_rep.empty: log_rep.to_excel(writer, index=False, sheet_name='변경이력')
-        st.download_button("📥 엑셀 다운로드", data=out.getvalue(),
-                           file_name=f"defog_report_{today_str}.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                           use_container_width=True)
-
-# ═════════════════════════════════════════════════════════════════════════════
-# [Menu 7] 시스템 및 데이터 관리
-# ═════════════════════════════════════════════════════════════════════════════
-elif menu == MENU_7:
-    st.markdown("### 📥 엑셀 데이터 불러오기")
-    h_row = st.number_input("📌 표 제목(Header)이 있는 엑셀 행 번호", min_value=1, value=1)
-    f = st.file_uploader("엑셀 파일 선택", type=['xlsx'])
-
-    if f and st.button("🚀 데이터 동기화 시작", use_container_width=True):
+    st.markdown("### 📥 엑셀 대량 동기화 파트")
+    h_row = st.number_input("📌 표 제목(Header)이 있는 엑셀 실제 행 번호", min_value=1, value=1)
+    f = st.file_uploader("동기화할 오리지널 엑셀 스펙 시트 선택", type=['xlsx'])
+    
+    if f and st.button("🚀 오리지널 데이터 1:1 매칭 시작", use_container_width=True):
         try:
             raw = pd.read_excel(f, skiprows=h_row-1).dropna(how='all')
-
+            
             mapped = pd.DataFrame()
-            mapped["pjt_no"]         = safe_get(raw, ['pjt', 'no', '번호'], '-')
-            mapped["company"]        = safe_get(raw, ['업체', '고객사', '수주업체'], '-')
-            mapped["pjt_name"]       = safe_get(raw, ['프로젝트', '사업명', '건명'], '-')
-            mapped["category"]       = safe_get(raw, ['구분', '종류'], 'PRODUCT')
-            mapped["product_family"] = safe_get(raw, ['제품군', '품목', '아이템'], '-')
-            mapped["status"]         = safe_get(raw, ['상태', '진행'], '🔵 견적').apply(clean_status)
-            mapped["our_manager"]    = safe_get(raw, ['우리담당', '내부담당', '영업담당'], '-')
-            mapped["client_manager"] = safe_get(raw, ['상대담당', '고객담당', '업체담당', '담당자'], '-')
-
-            q_date = safe_get(raw, ['견적일', '날짜', '최초견적'], get_kst_date())
+            mapped["sort_order"] = safe_get(raw, ['정렬', '순번', 'no'], '-')
+            mapped["division"] = safe_get(raw, ['구분', '파트'], '-')
+            
+            q_date = safe_get(raw, ['견적일', '날짜'], get_kst_date())
             mapped["quote_date"] = q_date.astype(str).str.split(' ').str[0]
-
-            amt_s = safe_get(raw, ['금액', '매출', '수주금액'], 0)
+            
+            mapped["pjt_no"] = safe_get(raw, ['프로젝트번호', 'pjt번호', 'pjtno'], '-')
+            mapped["company"] = safe_get(raw, ['프로젝트수주업체', '수주업체', '고객사', '업체명'], '-')
+            mapped["pjt_name"] = safe_get(raw, ['프로젝트명', '사업명', '건명'], '-')
+            mapped["category"] = safe_get(raw, ['분류', '타입'], '기타')
+            mapped["expected_timeline"] = safe_get(raw, ['예상일정', '일정'], '-')
+            
+            mapped["status"] = safe_get(raw, ['상태', '진행현황'], '🔵 견적(일반)').apply(clean_status)
+            mapped["target_date"] = safe_get(raw, ['목표완료일', '완료일'], '-')
+            mapped["progress"] = safe_get(raw, ['진행률', '진행도'], '-')
+            mapped["manager"] = safe_get(raw, ['관리자', '담당'], '-')
+            
+            # 인프라 세분화 스펙 매핑 파트
+            mapped["rack_system"] = safe_get(raw, ['rackingsystem', 'racking', '렉', '랙'], '-')
+            mapped["power_system"] = safe_get(raw, ['powersystem', 'power', '전력', 'pdu'], '-')
+            mapped["cooling_system"] = safe_get(raw, ['coolingsystem', 'cooling', '쿨링', '공조'], '-')
+            mapped["snx_spec"] = safe_get(raw, ['snxai-s421260', 'snx', 's421260'], '-')
+            
+            qty = safe_get(raw, ['수량', '개수'], 0)
+            mapped["quantity"] = pd.to_numeric(qty, errors='coerce').fillna(0).astype(int)
+            
+            amt_s = safe_get(raw, ['수주금액', '금액', '매출'], 0)
             if amt_s.dtype == object:
                 amt_s = amt_s.astype(str).str.replace(r'[^\d]', '', regex=True).replace('', '0')
             mapped["amount"] = pd.to_numeric(amt_s, errors='coerce').fillna(0).astype(int)
-
-            mapped["drop_reason"] = safe_get(raw, ['drop사유', 'drop이유', '취소사유'], '-')
-            mapped["remarks"]     = safe_get(raw, ['비고', '특이'], '-')
-            mapped["updated_at"]  = get_kst_date()
-
-            db_cols = ["pjt_no", "company", "pjt_name", "category", "product_family",
-                       "status", "our_manager", "client_manager", "quote_date",
-                       "amount", "drop_reason", "remarks", "updated_at"]
+            
+            mapped["client_manager"] = safe_get(raw, ['업체담당자', '고객담당자', '상대담당'], '-')
+            mapped["key_issue"] = safe_get(raw, ['핵심이슈', '이슈', '비고'], '-')
+            mapped["folder_link"] = safe_get(raw, ['폴더', '링크', '드라이브'], '-')
+            mapped["legrand"] = safe_get(raw, ['르그랑', 'legrand'], '-')
+            mapped["updated_at"] = get_kst_date()
+            
+            # 순서 재정렬 후 DB 인서트
+            db_cols = [
+                "sort_order", "division", "quote_date", "pjt_no", "company", "pjt_name", "category", 
+                "expected_timeline", "status", "target_date", "progress", "manager", 
+                "rack_system", "power_system", "cooling_system", "snx_spec", "quantity", 
+                "amount", "client_manager", "key_issue", "folder_link", "legrand", "updated_at"
+            ]
             mapped = mapped[db_cols]
-
+            
             conn = sqlite3.connect(DB_PATH)
             mapped.to_sql('projects', conn, if_exists='append', index=False)
             conn.commit(); conn.close()
-
-            st.success(f"🎉 {len(mapped)}건 데이터 동기화가 완료되었습니다! 1번 탭에서 내역을 확인해 주세요.")
+            
+            st.success("🎉 22개 컬럼 대형 데이터가 깨끗하게 완벽 싱크되었습니다! 1번 탭에서 합계 행 정리 등 최종 컨펌을 진행하세요.")
             st.rerun()
         except Exception as e:
-            st.error(f"동기화 오류 발생: {e}")
-
-    if st.session_state.get('user_role') == 'admin':
-        st.markdown("---")
-        st.markdown("### 🗑️ 전체 데이터 초기화 (대표님 전용)")
-        st.warning("⚠️ 아래 버튼은 모든 프로젝트 데이터를 삭제합니다. 신중히 사용하세요.")
-        if st.button("🗑️ 전체 초기화", type="secondary", use_container_width=True):
-            conn = sqlite3.connect(DB_PATH)
-            conn.execute("DELETE FROM projects")
-            conn.commit(); conn.close()
-            st.success("초기화 완료")
-            st.rerun()
+            st.error(f"엑셀 맵핑 동기화 중 에러 발생: {e}")
