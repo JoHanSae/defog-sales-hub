@@ -36,7 +36,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ─── 2. 팀원 계정 및 로그인 관리 ─────────────────────────────────────────────
-USERS = {"ceo": ("대표님", "defog!ceo"), "leader1": ("김원중 팀장님", "defog!leader1"), 
+USERS = {"ceo": ("대표님", "defog!ceo"), "leader1": ("김원중 팀장님", "defog!leader1"),
          "leader2": ("김용신 팀장님", "defog!leader2"), "manager": ("팀원", "defog!manager")}
 
 if 'logged_in' not in st.session_state:
@@ -65,10 +65,10 @@ DB_PATH = "defog_v33_master.db"
 STATUS_LIST = ["🔵 견적(🔥고확률)", "🔵 견적(일반)", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
 PRODUCT_COLS = {
-    "Racking": "rack_system",
-    "Power":   "power_system",
-    "Cooling": "cooling_system",
-    "DCIM":    "snx_spec",
+    "Racking":  "rack_system",
+    "Power":    "power_system",
+    "Cooling":  "cooling_system",
+    "DCIM":     "snx_spec",
 }
 PRODUCT_COLORS = {
     "Racking": "#2563eb",
@@ -83,6 +83,40 @@ STATUS_COLORS = {
     "🔵 견적(일반)":     "#93c5fd",
     "🟡 진행중":         "#facc15",
     "🟠 납품대기중":     "#f97316",
+}
+
+# 4대 카테고리 세부 품목 키워드 매핑
+ITEM_MAP = {
+    "Racking System": {
+        "RACK":         ["rack", "h2000", "42u", "프레임"],
+        "Containment":  ["containment", "컨테인"],
+        "Cable Tray":   ["cable tray", "케이블트레이", "cable"],
+        "Ceiling Grid": ["ceiling", "실링", "천장"],
+    },
+    "Power Solution": {
+        "Busway": ["busway", "버스웨이", "380v", "230v"],
+        "iPDU":   ["ipdu", "pdu", "raritan", "px4", "px3"],
+    },
+    "Cooling Solution": {
+        "In-Row Cooler":     ["in-row", "inrow", "인로우", "35kw"],
+        "Rear Door Cooling": ["rear door", "리어도어", "후면", "90kw"],
+        "Chiller":           ["chiller", "칠러"],
+    },
+    "Management Solution": {
+        "DCIM": ["dcim", "snx", "모니터링", "감시"],
+    },
+}
+CAT_COL_MAP = {
+    "Racking System":      "rack_system",
+    "Power Solution":      "power_system",
+    "Cooling Solution":    "cooling_system",
+    "Management Solution": "snx_spec",
+}
+CAT_COLORS = {
+    "Racking System":      "#2563eb",
+    "Power Solution":      "#f59e0b",
+    "Cooling Solution":    "#10b981",
+    "Management Solution": "#8b5cf6",
 }
 
 def init_db():
@@ -248,16 +282,16 @@ elif menu == MENU_3:
         edit_mode = st.toggle("✏️ 대시보드 편집 모드", value=False)
 
         # ── 저장된 설정 불러오기 ─────────────────────────────────────────────
-        saved_target        = int(get_dash_setting("target_amount",   "50000000000"))
-        saved_top_n         = int(get_dash_setting("top_n",           "5"))
-        saved_h_title       = get_dash_setting("header_title",        "2026 DEFOG 전사 수주 목표 달성 현황")
-        saved_top_title     = get_dash_setting("top_title",           "🏆 주간 집중 관리 대상 (TOP N 대형 프로젝트)")
-        saved_show_funnel   = get_dash_setting("show_funnel",         "True") == "True"
-        saved_show_bar      = get_dash_setting("show_bar",            "True") == "True"
-        saved_show_product  = get_dash_setting("show_product",        "True") == "True"
-        saved_show_manager  = get_dash_setting("show_manager",        "True") == "True"
-        saved_show_top      = get_dash_setting("show_top",            "True") == "True"
-        saved_show_status_pie = get_dash_setting("show_status_pie",   "True") == "True"
+        saved_target          = int(get_dash_setting("target_amount",   "50000000000"))
+        saved_top_n           = int(get_dash_setting("top_n",           "5"))
+        saved_h_title         = get_dash_setting("header_title",        "2026 DEFOG 전사 수주 목표 달성 현황")
+        saved_top_title       = get_dash_setting("top_title",           "🏆 주간 집중 관리 대상 (TOP N 대형 프로젝트)")
+        saved_show_funnel     = get_dash_setting("show_funnel",         "True") == "True"
+        saved_show_bar        = get_dash_setting("show_bar",            "True") == "True"
+        saved_show_product    = get_dash_setting("show_product",        "True") == "True"
+        saved_show_manager    = get_dash_setting("show_manager",        "True") == "True"
+        saved_show_top        = get_dash_setting("show_top",            "True") == "True"
+        saved_show_status_pie = get_dash_setting("show_status_pie",     "True") == "True"
 
         # ── 편집 패널 ────────────────────────────────────────────────────────
         if edit_mode:
@@ -302,7 +336,7 @@ elif menu == MENU_3:
             show_funnel = saved_show_funnel; show_bar = saved_show_bar; show_product = saved_show_product
             show_manager = saved_show_manager; show_top = saved_show_top; show_status_pie = saved_show_status_pie
 
-        # ── 4대 제품 집계 ─────────────────────────────────────────────────────
+        # ── 4대 제품 대카테고리 집계 (건수) ──────────────────────────────────
         for col in PRODUCT_COLS.values():
             if col not in df_d.columns: df_d[col] = "-"
 
@@ -321,6 +355,22 @@ elif menu == MENU_3:
                     })
         df_product = pd.DataFrame(product_rows) if product_rows else pd.DataFrame(
             columns=["product", "status", "amount", "manager", "company", "pjt_name"])
+
+        # ── 세부 품목 건수 집계 ───────────────────────────────────────────────
+        item_rows = []
+        for _, row in df_d.iterrows():
+            for cat, col in CAT_COL_MAP.items():
+                cell_val = str(row.get(col, "-")).lower().strip()
+                if not cell_val or cell_val in ["-", "", "nan"]: continue
+                matched = False
+                for item_name, keywords in ITEM_MAP[cat].items():
+                    if any(kw in cell_val for kw in keywords):
+                        item_rows.append({"대카테고리": cat, "품목": item_name})
+                        matched = True
+                        break
+                if not matched:
+                    item_rows.append({"대카테고리": cat, "품목": "(기타)"})
+        df_items = pd.DataFrame(item_rows) if item_rows else pd.DataFrame(columns=["대카테고리", "품목"])
 
         # ── KPI 계산 ──────────────────────────────────────────────────────────
         won_amt       = df_d[df_d['status'] == "🟢 완료"]['amount'].sum()
@@ -360,6 +410,7 @@ elif menu == MENU_3:
         df_chart = df_d.copy()
         df_chart['금액(억원)'] = df_chart['amount'] / 1e8
 
+        # 행 1: Funnel + 사업분류 Bar
         if show_funnel or show_bar:
             c1, c2 = st.columns(2)
             if show_funnel:
@@ -380,34 +431,45 @@ elif menu == MENU_3:
                                      color_discrete_map=STATUS_COLORS, barmode='group')
                     st.plotly_chart(fig_bar, use_container_width=True)
 
+        # 행 2: 4대 제품 포트폴리오(건수) + 상태별 파이
         if show_product or show_status_pie:
             c3, c4 = st.columns(2)
+
             if show_product:
                 with c3:
                     if not df_product.empty:
-                        prod_sum = df_product.groupby('product')['amount'].sum().reset_index()
-                        prod_sum['금액(억원)'] = prod_sum['amount'] / 1e8
-                        fig_prod = px.pie(prod_sum, values='금액(억원)', names='product',
-                                          title="📦 4대 제품 포트폴리오 (금액 기준) <br><span style='font-size:13px; color:#64748b;'>Racking / Power / Cooling / DCIM</span>",
-                                          hole=0.5, color='product', color_discrete_map=PRODUCT_COLORS)
+                        # ── 대카테고리 도넛 (건수 기준) ──────────────────────
+                        prod_cnt_sum = df_product.groupby('product').size().reset_index(name='건수')
+                        fig_prod = px.pie(
+                            prod_cnt_sum, values='건수', names='product',
+                            title="📦 4대 제품 포트폴리오 (건수 기준) <br><span style='font-size:13px; color:#64748b;'>Racking / Power / Cooling / DCIM</span>",
+                            hole=0.5, color='product', color_discrete_map=PRODUCT_COLORS
+                        )
                         fig_prod.update_traces(textinfo='label+percent', textfont_size=13)
                         st.plotly_chart(fig_prod, use_container_width=True)
 
-                        prod_status = df_product.groupby(['product','status'])['amount'].sum().reset_index()
-                        prod_status['금액(억원)'] = prod_status['amount'] / 1e8
-                        fig_prod_bar = px.bar(prod_status, x='product', y='금액(억원)', color='status',
-                                              title="📦 4대 제품별 영업 단계 현황",
-                                              color_discrete_map=STATUS_COLORS, barmode='stack')
-                        fig_prod_bar.update_layout(plot_bgcolor='rgba(0,0,0,0)')
-                        st.plotly_chart(fig_prod_bar, use_container_width=True)
+                        # ── 세부 품목 건수 바 차트 ────────────────────────────
+                        if not df_items.empty:
+                            item_cnt = df_items.groupby(['대카테고리', '품목']).size().reset_index(name='건수')
+                            fig_item = px.bar(
+                                item_cnt, x='품목', y='건수', color='대카테고리',
+                                title="📋 세부 품목별 건수",
+                                color_discrete_map=CAT_COLORS,
+                                text='건수'
+                            )
+                            fig_item.update_traces(textposition='outside')
+                            fig_item.update_layout(
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                xaxis_tickangle=-30,
+                                legend_title_text='카테고리'
+                            )
+                            st.plotly_chart(fig_item, use_container_width=True)
 
-                        prod_cnt = df_product.groupby('product').agg(
-                            건수=('amount', 'count'),
-                            합계=('amount', lambda x: f"₩ {int(x.sum()):,}")
-                        ).reset_index()
-                        prod_cnt.columns = ['제품', '건수', '금액 합계']
-                        st.markdown("**📋 4대 제품 건수 요약**")
-                        st.table(prod_cnt.reset_index(drop=True))
+                            # ── 세부 품목 건수 요약 테이블 ────────────────────
+                            tbl = df_items.groupby(['대카테고리', '품목']).size().reset_index(name='건수')
+                            tbl.columns = ['대카테고리', '품목', '건수']
+                            st.markdown("**📋 4대 제품 세부 품목 건수 요약**")
+                            st.table(tbl.reset_index(drop=True))
                     else:
                         st.info("Racking / Power / Cooling / DCIM 컬럼에 데이터가 없습니다.")
 
@@ -421,6 +483,7 @@ elif menu == MENU_3:
                     fig_sp.update_traces(textinfo='label+percent', textfont_size=12)
                     st.plotly_chart(fig_sp, use_container_width=True)
 
+        # 행 3: 담당자별
         if show_manager:
             fig_mgr = px.bar(df_chart[df_chart['status'] != "🔴 Drop"],
                              x='manager', y='금액(억원)', color='status',
