@@ -177,7 +177,7 @@ elif menu == MENU_2:
     else: st.info("데이터가 없습니다.")
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 3] 경영진 성과 대시보드 (⭐ 금액 표기 억원 단위 패치 영역)
+# [Menu 3] 경영진 성과 대시보드 (⭐ 지저분한 텍스트 삭제, 마우스 호버로 스마트하게 변경)
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_3:
     df_d = get_db_data()
@@ -218,7 +218,6 @@ elif menu == MENU_3:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # ⭐ 차트용 데이터 '억원' 변환
         df_chart = df_d.copy()
         df_chart['금액(억원)'] = df_chart['amount'] / 100000000
 
@@ -232,14 +231,15 @@ elif menu == MENU_3:
             fig_fun = px.funnel(fun_df, x='금액(억원)', y='status', 
                                 title="💰 영업 단계별 자금 흐름 (Funnel) <br><span style='font-size:13px; color:#64748b;'>* 단위: 억원</span>",
                                 color_discrete_sequence=['#1e3a8a'])
-            fig_fun.update_traces(texttemplate='%{x:,.1f}') # 텍스트를 숫자로 깔끔하게 포맷팅
+            # 깔끔함을 위해 텍스트 강제 표시 제거 (마우스 오버 시에만 보이게)
+            fig_fun.update_traces(textinfo="none") 
             st.plotly_chart(fig_fun, use_container_width=True)
 
         with c2:
             fig_bar = px.bar(df_chart, x='category', y='금액(억원)', color='status', 
                              title="🏢 사업 분류별 파이프라인 분포 <br><span style='font-size:13px; color:#64748b;'>* 단위: 억원</span>",
                              color_discrete_map={"🟢 완료":"#10b981", "🔴 Drop":"#ef4444", "🔵 견적(🔥고확률)":"#2563eb", "🔵 견적(일반)":"#93c5fd", "🟡 진행중":"#facc15", "🟠 납품대기중":"#f97316"},
-                             barmode='group', text_auto='.1f')
+                             barmode='group') # text_auto='.1f' 속성 완전 제거
             st.plotly_chart(fig_bar, use_container_width=True)
 
         c3, c4 = st.columns(2)
@@ -260,8 +260,8 @@ elif menu == MENU_3:
         with c4:
             fig_mgr = px.bar(df_chart[df_chart['status'] != "🔴 Drop"], x='manager', y='금액(억원)', color='status',
                              title="👨‍💼 담당자별 파이프라인 보유 현황 <br><span style='font-size:13px; color:#64748b;'>* 단위: 억원</span>",
-                             color_discrete_map={"🟢 완료":"#10b981", "🔵 견적(🔥고확률)":"#2563eb", "🔵 견적(일반)":"#93c5fd", "🟡 진행중":"#facc15", "🟠 납품대기중":"#f97316"},
-                             text_auto='.1f')
+                             color_discrete_map={"🟢 완료":"#10b981", "🔵 견적(🔥고확률)":"#2563eb", "🔵 견적(일반)":"#93c5fd", "🟡 진행중":"#facc15", "🟠 납품대기중":"#f97316"}
+                             ) # text_auto='.1f' 속성 완전 제거
             st.plotly_chart(fig_mgr, use_container_width=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
