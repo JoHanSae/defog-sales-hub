@@ -26,7 +26,6 @@ st.markdown("""
     .metric-card small { color: #64748b; font-size: 16px; font-weight: 600; }
     [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e2e8f0; }
     
-    /* 브리핑용 TOP 5 테이블 스타일 */
     .top-project-table {
         background: #ffffff; padding: 20px; border-radius: 15px; border: 1px solid #e2e8f0;
     }
@@ -58,7 +57,7 @@ if not st.session_state['logged_in']:
                 else: st.error("정보가 일치하지 않습니다.")
     st.stop()
 
-# ─── 3. 데이터베이스 (v33 master 버전 유지) ──────────────────────────────────
+# ─── 3. 데이터베이스 (v33 master 버전 유지 - 엑셀 재업로드 불필요) ───────────
 DB_PATH = "defog_v33_master.db"
 STATUS_LIST = ["🔵 견적(🔥고확률)", "🔵 견적(일반)", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
@@ -178,14 +177,13 @@ elif menu == MENU_2:
     else: st.info("데이터가 없습니다.")
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 3] 경영진 성과 대시보드 (⭐ V34 브리핑 특화 고도화 영역)
+# [Menu 3] 경영진 성과 대시보드
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_3:
     df_d = get_db_data()
     if df_d.empty:
         st.warning("분석할 데이터가 없습니다. 엑셀을 업로드해 주세요.")
     else:
-        # 1. 상단 브리핑 핵심 요약 (KPI)
         TARGET = 50000000000
         won_amt = df_d[df_d['status'] == "🟢 완료"]['amount'].sum()
         active_amt = df_d[df_d['status'].isin(["🔵 견적(🔥고확률)", "🔵 견적(일반)", "🟡 진행중", "🟠 납품대기중"])]['amount'].sum()
@@ -193,7 +191,6 @@ elif menu == MENU_3:
         
         st.markdown(f"### 🎖️ 2026 DEFOG 전사 수주 목표 달성 현황")
         
-        # 목표 달성률 프리미엄 게이지 바
         pct = (won_amt / TARGET) * 100
         cols_gauge = st.columns([8, 2])
         with cols_gauge[0]:
@@ -209,23 +206,23 @@ elif menu == MENU_3:
 
         st.markdown("<br><hr>", unsafe_allow_html=True)
 
-        # 2. 브리핑의 꽃: TOP 5 Must-Win 프로젝트 (대형 건)
+        # ⭐ 수정된 부분: TOP 5 대형 프로젝트 금액 천단위 콤마 완벽 적용
         st.markdown("### 🏆 주간 집중 관리 대상 (TOP 5 대형 프로젝트)")
         df_top = df_d[df_d['status'] != "🟢 완료"].sort_values('amount', ascending=False).head(5)
         if not df_top.empty:
-            df_top_view = df_top[['company', 'pjt_name', 'status', 'amount', 'manager', 'expected_timeline']]
-            df_top_view.columns = ['고객사', '프로젝트명', '상태', '수주금액(원)', '관리자', '예상일정']
+            df_top_view = df_top[['company', 'pjt_name', 'status', 'amount', 'manager', 'expected_timeline']].copy()
+            # 금액 컬럼 문자열 포맷팅
+            df_top_view['amount'] = df_top_view['amount'].apply(lambda x: f"₩ {int(x):,}")
+            df_top_view.columns = ['고객사', '프로젝트명', '상태', '수주금액', '관리자', '예상일정']
             st.table(df_top_view.reset_index(drop=True))
         else:
             st.info("현재 대기중인 프로젝트가 없습니다.")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 3. 정밀 시각화 레이아웃 (2x2 Grid)
         c1, c2 = st.columns(2)
         
         with c1:
-            # 파이프라인 건전성 (퍼널)
             fun_df = df_d.groupby('status')['amount'].sum().reset_index()
             order = {"🔵 견적(일반)":0, "🔵 견적(🔥고확률)":1, "🟡 진행중":2, "🟠 납품대기중":3, "🟢 완료":4, "🔴 Drop":5}
             fun_df['sort'] = fun_df['status'].map(order).fillna(99)
@@ -235,7 +232,6 @@ elif menu == MENU_3:
             st.plotly_chart(fig_fun, use_container_width=True)
 
         with c2:
-            # 분류별/상태별 분석
             fig_bar = px.bar(df_d, x='category', y='amount', color='status', 
                              title="🏢 사업 분류별 파이프라인 분포",
                              color_discrete_map={"🟢 완료":"#10b981", "🔴 Drop":"#ef4444", "🔵 견적(🔥고확률)":"#2563eb", "🔵 견적(일반)":"#93c5fd", "🟡 진행중":"#facc15", "🟠 납품대기중":"#f97316"},
@@ -245,8 +241,6 @@ elif menu == MENU_3:
         c3, c4 = st.columns(2)
 
         with c3:
-            # 인프라 믹스 분석 (Racking, Power, Cooling 등 제안 비중)
-            # '-'가 아닌 실제 텍스트가 있는 경우를 카운트
             infra_counts = {
                 "Rack": len(df_d[df_d['rack_system'] != "-"]),
                 "Power": len(df_d[df_d['power_system'] != "-"]),
@@ -260,7 +254,6 @@ elif menu == MENU_3:
             st.plotly_chart(fig_infra, use_container_width=True)
 
         with c4:
-            # 담당자별 성과 (미래 가치 중심)
             fig_mgr = px.bar(df_d[df_d['status'] != "🔴 Drop"], x='manager', y='amount', color='status',
                              title="👨‍💼 담당자별 파이프라인 보유 현황",
                              color_discrete_map={"🟢 완료":"#10b981", "🔵 견적(🔥고확률)":"#2563eb", "🔵 견적(일반)":"#93c5fd", "🟡 진행중":"#facc15", "🟠 납품대기중":"#f97316"})
