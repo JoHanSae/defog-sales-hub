@@ -56,9 +56,8 @@ if not st.session_state['logged_in']:
                 else: st.error("정보가 일치하지 않습니다.")
     st.stop()
 
-# ─── 3. 데이터베이스 초기화 (v30 엑셀 22개 컬럼 완벽 매칭 구조) ──────────────────
-DB_PATH = "defog_v30_final.db"
-# 피드백 반영: 견적 가능성 높은 건 분류 기능 추가
+# ─── 3. 데이터베이스 초기화 (v31 무결점 구조 - quantity를 TEXT 타입으로 전격 변경) ───
+DB_PATH = "defog_v31_final.db"
 STATUS_LIST = ["🔵 견적(🔥고확률)", "🔵 견적(일반)", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
 def init_db():
@@ -69,7 +68,7 @@ def init_db():
             company TEXT, pjt_name TEXT, category TEXT, expected_timeline TEXT,
             status TEXT, target_date TEXT, progress TEXT, manager TEXT,
             rack_system TEXT, power_system TEXT, cooling_system TEXT, snx_spec TEXT,
-            quantity INTEGER, amount INTEGER, client_manager TEXT, key_issue TEXT,
+            quantity TEXT, amount INTEGER, client_manager TEXT, key_issue TEXT,
             folder_link TEXT, legrand TEXT, updated_at TEXT
         )
     """)
@@ -96,6 +95,34 @@ def clean_status(text):
     elif "진행" in text or "🟡" in text: return "🟡 진행중"
     elif "Drop" in text or "취소" in text or "🔴" in text: return "🔴 Drop"
     else: return "🔵 견적(일반)"
+
+# 🛠️ 지능형 진행률 보정 함수 (0.1 -> 10% 변환기)
+def parse_progress(val):
+    if pd.isna(val) or val == '' or str(val).strip() == '-':
+        return '-'
+    val_str = str(val).strip()
+    if val_str.endswith('%'):
+        return val_str
+    try:
+        num = float(val)
+        if 0.0 <= num <= 1.0:
+            return f"{int(round(num * 100))}%"
+        return f"{int(num)}%"
+    except ValueError:
+        return val_str
+
+# 🛠️ 지능형 수량 단위 보존 함수 (120.0 -> 120 보정 및 문자열 단위 유지)
+def parse_quantity(val):
+    if pd.isna(val) or val == '' or str(val).strip() == '-':
+        return '-'
+    val_str = str(val).strip()
+    try:
+        num = float(val)
+        if num.is_integer():
+            return str(int(num))
+        return str(num)
+    except ValueError:
+        return val_str
 
 init_db()
 
@@ -124,15 +151,45 @@ with st.sidebar:
 st.markdown(f"<h2 style='color:#1e3a8a; font-weight:800; margin-bottom: 30px;'>{menu}</h2>", unsafe_allow_html=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 1] 프로젝트 파이프라인 관리 (22개 컬럼 완벽 구현)
+# [Menu 1] 프로젝트 파이프라인 관리
 # ═════════════════════════════════════════════════════════════════════════════
 if menu == MENU_1:
+    with st.expander("🚀 스마트 신규 프로젝트 직접 등록", expanded=False):
+        with st.form("quick_add_form"):
+            f1, f2, f3, f4 = st.columns(4)
+            with f1: f_no = st.text_input("프로젝트 번호")
+            with f2: f_comp = st.text_input("프로젝트 수주 업체 *")
+            with f3: f_name = st.text_input("프로젝트 명 *")
+            with f4: f_amt = st.number_input("수주 금액 (원)", min_value=0, step=1000000)
+            
+            f5, f6, f7 = st.columns(3)
+            with f5: f_cat = st.selectbox("분류", ["PRODUCT", "SOLUTION", "기타"])
+            with f6: f_stat = st.selectbox("상태", STATUS_LIST)
+            with f7: f_qty = st.text_input("수량 (예: 120, 11대, 4식)")
+            
+            f8, f9 = st.columns(2)
+            with f8: f_clt = st.text_input("업체 담당자")
+            with f9: f_date = st.date_input("견적일", value=datetime.now())
+            f_rem = st.text_input("핵심 이슈 및 비고")
+            
+            if st.form_submit_button("등록 완료", use_container_width=True):
+                if f_comp and f_name:
+                    conn = sqlite3.connect(DB_PATH)
+                    # 안전을 위해 명시적 컬럼 인서트 쿼리로 우회 방어
+                    conn.execute("""
+                        INSERT INTO projects (pjt_no, company, pjt_name, category, status, quantity, amount, client_manager, quote_date, key_issue, updated_at, sort_order, division, expected_timeline, target_date, progress, manager, rack_system, power_system, cooling_system, snx_spec, folder_link, legrand)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-')
+                    """, (f_no, f_comp, f_name, f_cat, f_stat, f_qty, int(f_amt), f_clt, f_date.strftime("%Y-%m-%d"), f_rem, get_kst_date()))
+                    conn.commit(); conn.close()
+                    st.success("✅ 프로젝트가 안정적으로 등록되었습니다!")
+                    st.rerun()
+                else: st.error("수주업체와 프로젝트명은 필수입니다.")
+
     df_current = get_db_data()
     
     st.markdown("### 📝 파이프라인 실시간 편집 테이블")
     st.caption("💡 **수정/삭제 가이드:** 셀을 더블클릭하여 수정하거나 행 선택 후 'Delete' 키로 행 삭제가 가능합니다. 최종 저장을 꼭 눌러주세요.")
     
-    # 엑셀과 100% 동일한 순서 배열 고정
     ORDERED_COLS = [
         "sort_order", "division", "quote_date", "pjt_no", "company", "pjt_name", "category", 
         "expected_timeline", "status", "target_date", "progress", "manager", 
@@ -150,9 +207,11 @@ if menu == MENU_1:
             "sort_order": "정렬", "division": "구분", "quote_date": "견적일", "pjt_no": "프로젝트 번호",
             "company": "프로젝트 수주 업체", "pjt_name": "프로젝트 명", "category": "분류",
             "expected_timeline": "예상 일정", "status": st.column_config.SelectboxColumn("상태", options=STATUS_LIST),
-            "target_date": "목표 완료일", "progress": "진행률", "manager": "관리자",
+            "target_date": "목표 완료일", "progress": st.column_config.TextColumn("진행률 (✏️ 예: 10%)"), "manager": "관리자",
             "rack_system": "Racking System", "power_system": "Power System", "cooling_system": "Cooling System",
-            "snx_spec": "SNX AI-S421260", "quantity": st.column_config.NumberColumn("수량", format="%d"),
+            "snx_spec": "SNX AI-S421260", 
+            # ⭐ 수량 단위를 살려두기 위해 TextColumn으로 변경 배치했습니다.
+            "quantity": st.column_config.TextColumn("수량 (✏️대,개,식 자유입력)"),
             "amount": st.column_config.NumberColumn("수주 금액 (원)", format="%,d"),
             "client_manager": "업체 담당자", "key_issue": "핵심 이슈", "folder_link": "폴더",
             "legrand": "르그랑", "updated_at": st.column_config.TextColumn("최종 업데이트", disabled=True)
@@ -164,7 +223,8 @@ if menu == MENU_1:
         try:
             final_df = edited_df.fillna("-")
             final_df['amount'] = pd.to_numeric(final_df['amount'], errors='coerce').fillna(0).astype(int)
-            final_df['quantity'] = pd.to_numeric(final_df['quantity'], errors='coerce').fillna(0).astype(int)
+            final_df['quantity'] = final_df['quantity'].apply(parse_quantity)
+            final_df['progress'] = final_df['progress'].apply(parse_progress)
             final_df['updated_at'] = get_kst_date()
             final_df = final_df[ORDERED_COLS]
             
@@ -177,7 +237,7 @@ if menu == MENU_1:
         except Exception as e: st.error(f"저장 중 치명적 오류 발생: {e}")
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 2] 주간 영업 회의 보드 (고확률 필터 탑재)
+# [Menu 2] 주간 영업 회의 보드
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_2:
     st.markdown("<p style='color:gray;'>💡 주간 회의 보고용 화면입니다. 상단의 필터를 활용해 중요 건을 바로 추려내세요.</p>", unsafe_allow_html=True)
@@ -185,7 +245,6 @@ elif menu == MENU_2:
     if not df_meet.empty:
         search_query = st.text_input("🔍 수주업체 또는 프로젝트명 빠른 검색", placeholder="검색어 입력")
         
-        # 피드백 반영: 고확률 견적건 위주로 먼저 체크할 수 있는 multiselect 필터
         sel_status = st.multiselect("📌 상태 필터링 (고확률 견적 우선 선택 가능)", STATUS_LIST, default=STATUS_LIST)
         meet_filtered = df_meet[df_meet['status'].isin(sel_status)]
         
@@ -197,13 +256,13 @@ elif menu == MENU_2:
             
         meet_filtered['수주 금액'] = meet_filtered['amount'].apply(lambda x: f"₩ {int(x):,}")
         
-        meet_show = meet_filtered[['quote_date', 'status', 'company', 'pjt_name', 'rack_system', 'power_system', 'cooling_system', 'client_manager', '수주 금액', 'key_issue']]
-        meet_show.columns = ['견적일', '상태', '프로젝트 수주 업체', '프로젝트 명', 'Racking', 'Power', 'Cooling', '업체 담당자', '수주 금액', '핵심 이슈']
+        meet_show = meet_filtered[['quote_date', 'status', 'progress', 'company', 'pjt_name', 'rack_system', 'power_system', 'cooling_system', 'quantity', '수주 금액', 'client_manager', 'key_issue']]
+        meet_show.columns = ['견적일', '상태', '진행률', '프로젝트 수주 업체', '프로젝트 명', 'Racking', 'Power', 'Cooling', '수량', '수주 금액', '업체 담당자', '핵심 이슈']
         st.dataframe(meet_show.sort_values(by='견적일', ascending=False).reset_index(drop=True), use_container_width=True, height=500)
     else: st.info("데이터가 존재하지 않습니다.")
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 3] 경영진 성과 대시보드 (차트 구체화 피드백 반영)
+# [Menu 3] 경영진 성과 대시보드
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_3:
     df_dash = get_db_data()
@@ -220,13 +279,12 @@ elif menu == MENU_3:
         st.markdown("<br>", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
-            # 피드백 반영: 세분화된 인프라 상태 분석 차트
             st.plotly_chart(px.bar(df_dash, x='status', y='amount', color='category', title="📈 파이프라인 상태별/분류별 규모 현황"), use_container_width=True)
         with c2:
             st.plotly_chart(px.box(df_dash, x='category', y='amount', title="🏢 분류별 프로젝트 금액 분포 대시보드"), use_container_width=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 4] 시스템 및 데이터 관리 (22개 컬럼 완벽 맵퍼 시스템)
+# [Menu 4] 시스템 및 데이터 관리
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_4:
     st.markdown("### 📥 엑셀 대량 동기화 파트")
@@ -252,7 +310,11 @@ elif menu == MENU_4:
             
             mapped["status"] = safe_get(raw, ['상태', '진행현황'], '🔵 견적(일반)').apply(clean_status)
             mapped["target_date"] = safe_get(raw, ['목표완료일', '완료일'], '-')
-            mapped["progress"] = safe_get(raw, ['진행률', '진행도'], '-')
+            
+            # ⭐ 진행률 10% 단위 고정 매칭 보정 레이어
+            progress_raw = safe_get(raw, ['진행률', '진행도'], '-')
+            mapped["progress"] = progress_raw.apply(parse_progress)
+            
             mapped["manager"] = safe_get(raw, ['관리자', '담당'], '-')
             
             # 인프라 세분화 스펙 매핑 파트
@@ -261,8 +323,9 @@ elif menu == MENU_4:
             mapped["cooling_system"] = safe_get(raw, ['coolingsystem', 'cooling', '쿨링', '공조'], '-')
             mapped["snx_spec"] = safe_get(raw, ['snxai-s421260', 'snx', 's421260'], '-')
             
-            qty = safe_get(raw, ['수량', '개수'], 0)
-            mapped["quantity"] = pd.to_numeric(qty, errors='coerce').fillna(0).astype(int)
+            # ⭐ 수량 문자열 보존 레이어 (대, 개, 식 단위 보존)
+            qty_raw = safe_get(raw, ['수량', '개수'], '-')
+            mapped["quantity"] = qty_raw.apply(parse_quantity)
             
             amt_s = safe_get(raw, ['수주금액', '금액', '매출'], 0)
             if amt_s.dtype == object:
@@ -275,7 +338,6 @@ elif menu == MENU_4:
             mapped["legrand"] = safe_get(raw, ['르그랑', 'legrand'], '-')
             mapped["updated_at"] = get_kst_date()
             
-            # 순서 재정렬 후 DB 인서트
             db_cols = [
                 "sort_order", "division", "quote_date", "pjt_no", "company", "pjt_name", "category", 
                 "expected_timeline", "status", "target_date", "progress", "manager", 
@@ -288,7 +350,7 @@ elif menu == MENU_4:
             mapped.to_sql('projects', conn, if_exists='append', index=False)
             conn.commit(); conn.close()
             
-            st.success("🎉 22개 컬럼 대형 데이터가 깨끗하게 완벽 싱크되었습니다! 1번 탭에서 합계 행 정리 등 최종 컨펌을 진행하세요.")
+            st.success("🎉 22개 컬럼 및 진행률/수량 단위 스펙 보존 동기화가 완벽히 마쳤습니다! 1번 탭에서 최종 확인해 주세요.")
             st.rerun()
         except Exception as e:
             st.error(f"엑셀 맵핑 동기화 중 에러 발생: {e}")
