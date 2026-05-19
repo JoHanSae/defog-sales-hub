@@ -56,8 +56,8 @@ if not st.session_state['logged_in']:
                 else: st.error("정보가 일치하지 않습니다.")
     st.stop()
 
-# ─── 3. 데이터베이스 유지 (v31 DB 그대로 사용! 엑셀 재업로드 불필요) ─────────────
-DB_PATH = "defog_v31_final.db"
+# ─── 3. 데이터베이스 초기화 (⭐ 완벽하게 깨끗한 v33 DB 생성) ─────────────────
+DB_PATH = "defog_v33_master.db"
 STATUS_LIST = ["🔵 견적(🔥고확률)", "🔵 견적(일반)", "🟡 진행중", "🟠 납품대기중", "🟢 완료", "🔴 Drop"]
 
 def init_db():
@@ -176,8 +176,6 @@ if menu == MENU_1:
                 else: st.error("수주업체와 프로젝트명은 필수입니다.")
 
     df_current = get_db_data()
-    st.markdown("### 📝 파이프라인 실시간 편집 테이블")
-    st.caption("💡 **수정/삭제 가이드:** 셀을 더블클릭하여 수정하거나 행 선택 후 'Delete' 키로 행 삭제가 가능합니다. 최종 저장을 꼭 눌러주세요.")
     
     ORDERED_COLS = [
         "sort_order", "division", "quote_date", "pjt_no", "company", "pjt_name", "category", 
@@ -185,6 +183,13 @@ if menu == MENU_1:
         "rack_system", "power_system", "cooling_system", "snx_spec", "quantity", 
         "amount", "client_manager", "key_issue", "folder_link", "legrand", "updated_at"
     ]
+    
+    # ⭐ [방탄 로직] 데이터가 완전히 비어있거나 기둥이 맞지 않을 경우 강제로 뼈대를 맞춰 에러를 방지합니다.
+    if df_current.empty or not all(col in df_current.columns for col in ORDERED_COLS):
+        df_current = pd.DataFrame(columns=ORDERED_COLS)
+
+    st.markdown("### 📝 파이프라인 실시간 편집 테이블")
+    st.caption("💡 **수정/삭제 가이드:** 셀을 더블클릭하여 수정하거나 행 선택 후 'Delete' 키로 행 삭제가 가능합니다. 최종 저장을 꼭 눌러주세요.")
     
     edited_df = st.data_editor(
         df_current,
@@ -249,25 +254,22 @@ elif menu == MENU_2:
     else: st.info("데이터가 존재하지 않습니다.")
 
 # ═════════════════════════════════════════════════════════════════════════════
-# [Menu 3] 경영진 성과 대시보드 (⭐ V32 핵심 정밀 차트 고도화 파트)
+# [Menu 3] 경영진 성과 대시보드
 # ═════════════════════════════════════════════════════════════════════════════
 elif menu == MENU_3:
     df_dash = get_db_data()
     if df_dash.empty: st.info("분석할 데이터가 존재하지 않습니다.")
     else:
-        # ⭐ 타겟을 500억으로 상향
         TARGET_AMOUNT = 50000000000 
         won_amt = df_dash[df_dash['status'] == "🟢 완료"]['amount'].sum()
         active_amt = df_dash[df_dash['status'].isin(["🔵 견적(🔥고확률)", "🔵 견적(일반)", "🟡 진행중", "🟠 납품대기중"])]['amount'].sum()
         high_prob_amt = df_dash[df_dash['status'] == "🔵 견적(🔥고확률)"]['amount'].sum()
         
-        # 상단 목표 달성률 바
         progress_pct = min(won_amt / TARGET_AMOUNT, 1.0) if TARGET_AMOUNT > 0 else 0
         st.markdown(f"#### 🎯 2026년 DEFOG 팀 수주 목표 달성률 <span style='font-size:16px; color:#64748b;'>(목표: 500억)</span>", unsafe_allow_html=True)
         st.progress(progress_pct)
         st.markdown(f"<p style='text-align:right; font-weight:bold; color:#10b981;'>{progress_pct*100:.1f}% 달성 (₩ {won_amt:,}원)</p>", unsafe_allow_html=True)
         
-        # 핵심 지표 카드 4종
         m1, m2, m3, m4 = st.columns(4)
         m1.markdown(f"<div class='metric-card'><small>현재 진행중인 파이프라인</small><h3>₩ {active_amt:,}</h3></div>", unsafe_allow_html=True)
         m2.markdown(f"<div class='metric-card' style='border-top-color:#3b82f6;'><small>🔥 고확률 견적 대기액</small><h3>₩ {high_prob_amt:,}</h3></div>", unsafe_allow_html=True)
@@ -277,10 +279,8 @@ elif menu == MENU_3:
         st.markdown("<hr>", unsafe_allow_html=True)
         st.markdown("### 🔍 영업 상태별 정밀 분석 대시보드")
         
-        # ⭐ 정밀 차트를 위한 Tab 구성 (에러 방지 차트 색상 매핑 포함)
         tab1, tab2, tab3 = st.tabs(["📊 전체 파이프라인 흐름", "📝 견적 및 진행 상세 분석", "🏆 수주 완료 및 Drop 분석"])
         
-        # 상태별 일관된 컬러코드 적용
         color_map = {
             "🔵 견적(일반)": "#93c5fd", "🔵 견적(🔥고확률)": "#3b82f6", 
             "🟡 진행중": "#eab308", "🟠 납품대기중": "#f97316", 
@@ -291,7 +291,6 @@ elif menu == MENU_3:
             st.markdown("#### 영업 단계별 퍼널 (Funnel) 현황")
             c1, c2 = st.columns(2)
             with c1:
-                # 에러 방지용 안전 정렬 및 퍼널 생성
                 funnel_df = df_dash.groupby('status')['amount'].sum().reset_index()
                 order_map = {"🔵 견적(일반)":0, "🔵 견적(🔥고확률)":1, "🟡 진행중":2, "🟠 납품대기중":3, "🟢 완료":4, "🔴 Drop":5}
                 funnel_df['sort'] = funnel_df['status'].map(order_map).fillna(99)
@@ -327,7 +326,7 @@ elif menu == MENU_3:
                 with c6:
                     df_won_only = df_done[df_done['status'] == '🟢 완료']
                     if not df_won_only.empty:
-                        fig_done_pf = px.pie(df_won_only, values='amount', names='product_family', title="수주 완료 건 제품군(Product Family) 비중", hole=0.4)
+                        fig_done_pf = px.pie(df_won_only, values='amount', names='category', title="수주 완료 건 분류 비중", hole=0.4)
                         st.plotly_chart(fig_done_pf, use_container_width=True)
                     else: st.info("아직 수주 완료된 데이터가 없어 파이 차트를 그릴 수 없습니다.")
             else: st.info("완료 또는 Drop 처리된 실적 데이터가 없습니다.")
